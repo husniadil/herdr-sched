@@ -1,0 +1,58 @@
+id = "herdr-sched"
+name = "Sched"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "The scheduler and trigger plugin for a Herdr fleet: a cron schedule or an inbound trigger fires an action into the sibling plugins"
+platforms = ["macos", "linux"]
+
+# One statically linked Go binary is the daemon and both doors. Compiling on
+# install keeps the repository free of release artefacts, and Go's build cache
+# makes the second install fast.
+[[build]]
+id = "binary"
+command = ["go", "build", "-o", "./bin/hsched", "./cmd/hsched"]
+
+# Starts the daemon and exits, which is what Herdr expects of a startup
+# command (§2.4). The daemon detaches, so it survives the pane that opened it.
+[[startup]]
+id = "daemon"
+command = ["./scripts/start.sh"]
+
+# Herdr has no shutdown hook, so disabling or unlinking the plugin leaves the
+# daemon running. These are the way to actually turn it off (§2.4).
+[[actions]]
+id = "stop"
+title = "Stop the sched daemon"
+contexts = ["workspace"]
+command = ["./scripts/stop.sh"]
+
+[[actions]]
+id = "restart"
+title = "Restart the sched daemon"
+contexts = ["workspace"]
+command = ["./scripts/restart.sh"]
+
+# A pane that dies is news this plugin will need the moment a job or a trigger
+# can be bound to one, and the hook is wired from day one so that change is a
+# verb rather than a manifest edit an operator has to re-install for. Both
+# events, because they are different deaths: `pane.exited` is the command
+# finishing while the pane stays, `pane.closed` is the pane going away. Herdr
+# spells hook names with dots here, though the event schema enums spell them
+# with underscores.
+#
+# The script reads HERDR_PANE_ID from the environment: Herdr substitutes
+# nothing into an argv, so a "$HERDR_PANE_ID" written here would arrive as that
+# literal string.
+[[events]]
+on = "pane.closed"
+command = ["./scripts/on-pane-gone.sh"]
+
+[[events]]
+on = "pane.exited"
+command = ["./scripts/on-pane-gone.sh"]
+
+# No [[panes]]. §2.1 as amended owes a plugin pane only where the plugin's
+# concern includes an operator-facing view. This build has no schedule to show
+# on one; `hsched doctor` and `hsched events` are its human surface until it
+# does, and shipping an empty view now would be a promise of a list that is not
+# there.
