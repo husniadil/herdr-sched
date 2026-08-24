@@ -127,6 +127,8 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 		fmt.Fprintf(out, "store version %d at %s\n", rep.Version, or(rep.Path, "memory only"))
 		fmt.Fprintf(out, "  parked        %d rows, %d events\n",
 			len(rep.Document.Parked), len(rep.Document.ParkedEvents))
+		// A run has no rows of its own: the trail IS the run history.
+		fmt.Fprintf(out, "  runs          %d events\n", len(rep.Document.RunEvents))
 	case "events":
 		var rep daemon.EventsReport
 		if err := json.Unmarshal(result, &rep); err != nil {

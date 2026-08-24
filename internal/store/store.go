@@ -10,8 +10,10 @@
 // Every entity here has a trail of its own beside it, `<entity>_events`, and
 // the two are saved together because the document is written whole: a change
 // and the event that records it can never land one without the other. Today
-// there is one entity, the actions the policy gate parked; a job and a trigger
-// arrive the same way, each with its own sibling trail.
+// that is the actions the policy gate parked, and the runs a signal's actions
+// fired; a job and a trigger arrive the same way, each with its own sibling
+// trail. A run has a trail and no list of rows beside it, because the run
+// history IS the §8 stream and there is no second table (note 2).
 package store
 
 import (
@@ -43,6 +45,11 @@ type Document struct {
 	// list above rather than one trail shared by everything, so a second
 	// entity arrives with its own and neither has to be split out later.
 	ParkedEvents []Event `json:"parked_events"`
+	// RunEvents is the run history: every time a signal's action fired, and
+	// how it went. It is a trail with no list beside it on purpose (note 2):
+	// the run history IS the §8 stream, and there is no second table holding
+	// the same facts in another shape.
+	RunEvents []Event `json:"run_events"`
 }
 
 // Store is the document at Path, held in memory and written whole.
@@ -99,6 +106,7 @@ func (s *Store) copy() Document {
 		Version:      Version,
 		Parked:       append([]Parked{}, s.doc.Parked...),
 		ParkedEvents: append([]Event{}, s.doc.ParkedEvents...),
+		RunEvents:    append([]Event{}, s.doc.RunEvents...),
 	}
 }
 
@@ -108,7 +116,7 @@ func (s *Store) copy() Document {
 func (s *Store) Trail() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return merge(s.doc.ParkedEvents)
+	return merge(s.doc.ParkedEvents, s.doc.RunEvents)
 }
 
 func merge(trails ...[]Event) []Event {
@@ -131,6 +139,7 @@ func (s *Store) update(fn func(*Document) error) error {
 		return err
 	}
 	next.ParkedEvents = Rotate(next.ParkedEvents)
+	next.RunEvents = Rotate(next.RunEvents)
 	if err := s.write(next); err != nil {
 		return err
 	}
@@ -193,6 +202,16 @@ func (s *Store) WaitingParked() int {
 		}
 	}
 	return n
+}
+
+// RecordRun appends one run to the run trail. A fired action and a refused
+// one both land here: a failure this daemon swallowed is a schedule that
+// stopped working on a night nobody was watching.
+func (s *Store) RecordRun(ev Event) error {
+	return s.update(func(doc *Document) error {
+		doc.RunEvents = append(doc.RunEvents, ev)
+		return nil
+	})
 }
 
 // Park records a deferral and the event that says so, in one save.

@@ -39,6 +39,10 @@ type Event struct {
 // entity this scaffold has, and its trail is Document.ParkedEvents.
 const EntityParked = "parked"
 
+// EntityRun is one firing of a signal's action. Unlike parked, it has no list
+// of rows beside it: the trail is the history (note 2).
+const EntityRun = "run"
+
 // The kinds an event of this plugin's carries.
 const (
 	// KindParked is the gate deferring a call.
@@ -47,8 +51,11 @@ const (
 	KindResolved = "resolved"
 	// KindRefused is the operator closing the action without running it.
 	KindRefused = "refused"
-	// KindFailed is a resolved action whose verb then errored.
+	// KindFailed is a resolved action whose verb then errored, and a fired
+	// action whose sibling refused or whose command did not succeed.
 	KindFailed = "failed"
+	// KindFired is a signal's action that reached what it was aimed at.
+	KindFired = "fired"
 )
 
 // MaxEvents is how many events one entity's trail keeps. The whole document is

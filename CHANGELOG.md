@@ -4,6 +4,35 @@ All notable changes to herdr-sched are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The action vocabulary: what a signal does when it fires. Nothing schedules or
+listens yet — a job and a trigger both land on this.
+
+### Added
+
+- `internal/action`, the closed vocabulary of four kinds — `task`, `mail`,
+  `dispatch`, `shell` — validated in the pure core at **create** time: an
+  unknown kind, an unknown argument, a missing required one or an argument of
+  the wrong type is refused when the row is written rather than at 3am when it
+  fires. The firing signal's §3.2 principal, `cron:<job>` or `trigger:<id>`,
+  is built and validated here too.
+- One adapter per sibling — `internal/htask`, `internal/hmail`,
+  `internal/hdis` — over `internal/sibling`, the single spawn site that
+  appends `--json` and `--as` to every call and scrubs the pane out of the
+  environment, so a call declares a principal INSTEAD of a pane. A sibling's
+  §6.2 error envelope is carried as a refusal in that sibling's own words with
+  its §6.3 code; a failure without one never reached a sibling that answered.
+  A guard fails the build if any of those packages grows a second spawn.
+- `internal/shellact`, the one action that reaches no sibling: it runs
+  detached from the tick with both streams captured and bounded, so a slow
+  command holds up no other schedule.
+- `internal/fire`, the fire path: one validated action becomes one call and
+  one run on the trail. A sibling that is unreachable or refuses is a loud
+  `sched.run.failed` event, never a silent skip.
+- `run_events` in the store, an entity trail with no list of rows beside it:
+  the run history IS the §8 stream and there is no second table.
+
 ## [0.1.0] - 2026-08-24
 
 The first release: the common foundation every sibling plugin shares, and

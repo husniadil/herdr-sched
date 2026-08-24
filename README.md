@@ -8,9 +8,9 @@ contract already names for it: `cron:<job id>` or `trigger:<id>` (§3.1), so
 the actor is on every event trail the action touches. One binary, `hsched`, is
 the daemon and both doors.
 
-**This build is the common foundation and nothing else.** There is no job, no
-trigger and no action verb yet; what is here is the skeleton every sibling
-shares — one verb registry both doors are generated from, the four contract
+**Nothing schedules or listens yet.** There is no job, no trigger and no
+action verb; what is here is the skeleton every sibling shares, plus the
+action vocabulary those two will fire — one verb registry both doors are generated from, the four contract
 globals, the socket protocol, the daemon with its lock and its tick, the JSON
 store with an events trail per entity, the config document, the policy gate,
 and the test harness. The verbs are `doctor`, `dump`, `events`,
@@ -102,13 +102,40 @@ call. `internal/mcpdoor`'s `Globals` table records each one, and a test walks
 the whole subcommand tree against it — a flag that is neither mapped nor
 excluded with a reason is a failing test.
 
+## The action vocabulary
+
+An action is data on a job or a trigger row — a kind and its arguments — and
+there are four kinds: `task` files one on the htask board, `mail` sends a
+notify or an ask through hmail, `dispatch` brings a worker up through hdis,
+and `shell` runs a command on the host. An unknown kind, a missing argument or
+an argument of the wrong type is refused when the row is **written**, not when
+it fires: a schedule that fails at 3am fails in a log nobody reads.
+
+Every sibling call shells out to that sibling's CLI with `--json` and never
+opens its socket, so each daemon stays the only writer of its own store, and
+every call declares `--as cron:<job>` or `--as trigger:<id>` (§3.2) so the
+actor on the sibling's own trail is the schedule rather than "some plugin".
+The pane is scrubbed out of the environment for the same reason: a call that
+carried one would be attributed to this daemon instead.
+
+A shell action runs **detached** from the tick, with its output captured onto
+the run, so a slow command holds up no other schedule. Nothing is queued for
+later and nothing is retried. A sibling that is unreachable is a loud failed
+run on the trail carrying that sibling's own words and its §6.3 code, never a
+silent skip: a schedule that quietly stopped working looks exactly like one
+with nothing to do.
+
 ## The event trail
 
 Every entity in the store keeps its own trail beside it, `<entity>_events`,
 saved in the same write: a change and the event recording it can never land
-one without the other. Today there is one entity — the actions the policy gate
-parked — and its trail is `parked_events`. A job and a trigger arrive the same
-way, each with its own sibling trail.
+one without the other. Today that is the actions the policy gate parked, in
+`parked_events`, and the runs a signal's actions fired, in `run_events`. A job
+and a trigger arrive the same way, each with its own sibling trail.
+
+A run is a trail with no list of rows beside it, and deliberately so: the run
+history IS the §8 stream, and a second table holding the same facts in another
+shape is one more thing to keep in step.
 
 An event is §8.1's shape: `{id, at, actor, project, entity, kind, detail}`
 plus the name the parts spell out, `sched.<entity>.<kind>`. `hsched events`
