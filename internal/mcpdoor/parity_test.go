@@ -217,6 +217,41 @@ func TestTheSchemaDeclaresExactlyWhatTheCLITakes(t *testing.T) {
 	}
 }
 
+// The registry's argument kinds render as the JSON types a caller's client
+// validates against. The test above reads the schema against `jsonType`, which
+// cannot catch `jsonType` itself moving; these are the literal types, pinned
+// once per kind.
+func TestEachArgumentKindRendersAsItsJSONType(t *testing.T) {
+	_, call := inProcessDaemon(t)
+	sess := session(t, call)
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	byName := map[string]*mcp.Tool{}
+	for _, tl := range tools.Tools {
+		byName[tl.Name] = tl
+	}
+	// One argument per kind the registry has, and the type a client sees.
+	for _, c := range []struct{ tool, arg, want string }{
+		{"job_add", "id", "string"},
+		{"job_add", "args", "object"},
+		{"job_add", "catch_up", "boolean"},
+		{"events", "limit", "integer"},
+	} {
+		props := properties(t, byName[c.tool])
+		var prop struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(props[c.arg], &prop); err != nil {
+			t.Fatalf("tool %q, argument %q: %v", c.tool, c.arg, err)
+		}
+		if prop.Type != c.want {
+			t.Errorf("tool %q declares %q as %q, want %q", c.tool, c.arg, prop.Type, c.want)
+		}
+	}
+}
+
 // Both doors show the same words, because a verb explained two ways is a verb
 // that drifts.
 func TestBothDoorsDescribeAVerbTheSameWay(t *testing.T) {

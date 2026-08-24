@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -245,6 +246,129 @@ func TestADueJobFiresItsActionAtTheSibling(t *testing.T) {
 	held, _ := d.Store.Job("nightly-sweep")
 	if got := time.UnixMilli(held.LastFiredMS).UTC().Format(time.RFC3339); got != "2026-08-25T03:00:00Z" {
 		t.Errorf("the cursor is at %s, want the SCHEDULED instant rather than the tick's clock", got)
+	}
+}
+
+// The cursor moves BEFORE the action fires, which is what makes a daemon that
+// dies mid-action leave a schedule that did not fire rather than one that
+// fires again on the next start. The fake reads the store from inside the
+// call, which is the only moment the ordering is observable.
+func TestTheCursorHasAlreadyMovedWhenTheActionFires(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, f := firingDaemon(t, "2026-08-25T03:00:20Z")
+	f.Bin(t, "htask", `cp "$SCHED_STATE_DIR/sched.json" "$SCHED_FAKE_DIR/store-at-fire.json"
+printf '{"task":{"id":"01T","seq":7,"title":"sweep"}}
+'`)
+	addFiredYesterday(t, d, "2026-08-24T03:00:00Z")
+
+	d.runDue(context.Background(), false)
+	d.Fire.Wait()
+
+	raw, err := os.ReadFile(f.Path("store-at-fire.json"))
+	if err != nil {
+		t.Fatalf("the fake never read the store: %v", err)
+	}
+	var doc struct {
+		Jobs []struct {
+			ID        string `json:"id"`
+			LastFired int64  `json:"last_fired"`
+		} `json:"jobs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("the store as the fake saw it: %v", err)
+	}
+	if len(doc.Jobs) != 1 {
+		t.Fatalf("the store held %d jobs when the action fired", len(doc.Jobs))
+	}
+	got := time.UnixMilli(doc.Jobs[0].LastFired).UTC().Format(time.RFC3339)
+	if got != "2026-08-25T03:00:00Z" {
+		t.Fatalf("the cursor was at %s when the action fired; it must already be past the instant it is firing for", got)
+	}
+}
+
+// note 2 asks doctor for what the LAST START passed over. A miss the daemon
+// was up for is on the trail and is not that question's answer.
+func TestASkipTheDaemonWasUpForIsNotSkippedAtStart(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, f := firingDaemon(t, "2026-08-25T09:00:00Z")
+	f.Bin(t, "htask", `printf '{"task":{"id":"01T","seq":7,"title":"sweep"}}
+'`)
+	addFiredYesterday(t, d, "2026-08-22T03:00:00Z")
+
+	// Not a start: three instants have passed, one fires and the two older
+	// ones are recorded as skipped.
+	d.runDue(context.Background(), false)
+	d.Fire.Wait()
+
+	trail := d.Store.Snapshot().JobEvents
+	if last := trail[len(trail)-1]; last.Name != "sched.job.skipped" {
+		t.Fatalf("the job trail ends with %q, want the skip recorded", last.Name)
+	}
+	if got := d.doctor().Jobs.SkippedAtStart; len(got) != 0 {
+		t.Fatalf("doctor names %+v as skipped at the last start, and this daemon was up for it", got)
+	}
+}
+
+// An argument the registry declares as an object is held to that on the way
+// in: a string carrying JSON is not an object, and accepting one would mean
+// two doors reading the same tool call two ways.
+func TestAnObjectArgumentIsHeldToItsType(t *testing.T) {
+	d := newDaemon(t)
+	args := nightlyArgs()
+	args["args"] = `{"title":"sweep the board"}`
+	_, err := call(t, d, "job.add", args)
+	if err == nil {
+		t.Fatal("a string was accepted where the schema declares an object")
+	}
+	if got := codes.Of(err); got != codes.Usage {
+		t.Errorf("it was refused as %s, want USAGE", got)
+	}
+	// By the TYPE check the schema published, and not by the action builder
+	// downstream of it: both refuse this, and only the first one is the
+	// promise a caller's client validates against.
+	if !strings.Contains(codes.Message(err), "job.add wants args") {
+		t.Errorf("it was refused past the door's own type check: %v", err)
+	}
+	if n := len(d.Store.Jobs()); n != 0 {
+		t.Errorf("%d rows written", n)
+	}
+}
+
+// §9.1: every world-changing verb passes the gate before doing anything, and
+// the job verbs are world-changing. Without this the whole cron half could
+// fall out of the gate and every other test would still pass.
+func TestAGateThatDeniesStopsAJobFromBeingWritten(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	f := testenv.New(t)
+	f.Gate(t, "deny", "no new schedules today")
+	d := newDaemonIn(t, "2026-08-25T09:00:00Z")
+
+	for _, c := range []struct {
+		verb string
+		args map[string]any
+		name string
+	}{
+		{"job.add", nightlyArgs(), "sched.job.add"},
+		{"job.remove", map[string]any{"id": "nightly-sweep"}, "sched.job.remove"},
+		{"job.enable", map[string]any{"id": "nightly-sweep"}, "sched.job.enable"},
+		{"job.disable", map[string]any{"id": "nightly-sweep"}, "sched.job.disable"},
+	} {
+		_, err := call(t, d, c.verb, c.args)
+		if codes.Of(err) != codes.Denied {
+			t.Errorf("%s answered %s, want DENIED: the gate never saw it", c.verb, codes.Of(err))
+			continue
+		}
+		if !strings.Contains(codes.Message(err), c.name) {
+			t.Errorf("%s was refused without naming %s: %v", c.verb, c.name, err)
+		}
+	}
+	if n := len(d.Store.Jobs()); n != 0 {
+		t.Errorf("%d rows written past a gate that denied", n)
+	}
+	// A read is not gated, and a gate that denied everything would have
+	// stopped this too.
+	if _, err := call(t, d, "job.list", nil); err != nil {
+		t.Errorf("job.list is a read and was gated: %v", err)
 	}
 }
 

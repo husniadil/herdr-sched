@@ -129,7 +129,7 @@ var All = []Verb{
 			{Name: "id", Type: String, Desc: "The name for this schedule; it is the id half of the `cron:<job id>` principal its calls declare", Required: true, Positional: true},
 			{Name: "schedule", Type: String, Desc: "The five-field cron expression, read in UTC: minute hour day-of-month month day-of-week", Required: true, Positional: true},
 			{Name: "action", Type: String, Desc: "What it fires: task, mail, dispatch or shell", Required: true, Positional: true},
-			{Name: "args", Type: Object, Desc: "The action's own arguments, e.g. {\"title\": \"nightly sweep\"} for a task"},
+			{Name: "args", Type: Object, Desc: "The action's own arguments: a task takes title, an hmail takes to and body, a shell takes command"},
 			{Name: "catch_up", Type: Bool, Desc: "Fire ONCE at the next start when the daemon was down for a scheduled instant; without it the miss is skipped, which is cron's own semantics"},
 		},
 		Mutates: true,

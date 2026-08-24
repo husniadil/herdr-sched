@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -141,6 +142,31 @@ func TestTheCursorMovesWithASkipAndAloneForAFiring(t *testing.T) {
 	}
 	if _, found := s.Job("nothing"); found {
 		t.Error("a job that is not there was found")
+	}
+}
+
+// The job trail is bounded like every other entity's: the whole document is
+// rewritten on every change, so an unbounded trail makes every save slower
+// for as long as the daemon runs.
+func TestTheJobTrailIsBoundedOnSave(t *testing.T) {
+	// In memory: this writes a thousand documents, and none of them has to
+	// reach a disk to prove the rotation happened on the way through.
+	s, err := Open("")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	for i := 0; i < MaxEvents+10; i++ {
+		id := fmt.Sprintf("sweep-%04d", i)
+		if err := s.AddJob(nightly(id), jobEvent(int64(i+1), KindAdded, id)); err != nil {
+			t.Fatalf("AddJob %s: %v", id, err)
+		}
+	}
+	held := s.Snapshot().JobEvents
+	if len(held) != MaxEvents {
+		t.Fatalf("the job trail holds %d events, want it bounded at %d", len(held), MaxEvents)
+	}
+	if held[len(held)-1].EntityID != fmt.Sprintf("sweep-%04d", MaxEvents+9) {
+		t.Errorf("rotation dropped the newest event; the trail ends at %s", held[len(held)-1].EntityID)
 	}
 }
 
