@@ -148,6 +148,67 @@ func (w *world) waitFor(what string, cond func() bool) {
 	w.t.Fatalf("timed out waiting for %s", what)
 }
 
+// A job written through the shipped CLI is held by the daemon and read back
+// by the next call. The argument that matters here is `--args`: it is one
+// JSON object on a shell line, and the quoting either survives argv or it
+// does not — which is a thing only layer 3 can say.
+func TestAJobIsWrittenAndReadBackThroughTheShippedBinary(t *testing.T) {
+	w := setup(t)
+	defer w.script("stop.sh")
+
+	out, errOut, status := w.run("job", "add", "nightly-sweep", "0 3 * * *", "task",
+		"--args", `{"title":"sweep the board","priority":2}`, "--json")
+	if status != 0 {
+		t.Fatalf("job add exited %d: %s%s", status, out, errOut)
+	}
+	var added struct {
+		Job struct {
+			ID     string `json:"id"`
+			Next   string `json:"next"`
+			Action struct {
+				Kind string            `json:"kind"`
+				Args map[string]string `json:"args"`
+			} `json:"action"`
+		} `json:"job"`
+		Changed bool `json:"changed"`
+	}
+	if err := json.Unmarshal([]byte(out), &added); err != nil {
+		t.Fatalf("job add printed %q: %v", out, err)
+	}
+	if !added.Changed || added.Job.ID != "nightly-sweep" {
+		t.Fatalf("job add = %+v", added)
+	}
+	if added.Job.Action.Args["title"] != "sweep the board" {
+		t.Errorf("the title reached the row as %q", added.Job.Action.Args["title"])
+	}
+	if added.Job.Action.Args["priority"] != "2" {
+		t.Errorf("a number in --args reached the row as %q", added.Job.Action.Args["priority"])
+	}
+	if added.Job.Next == "" {
+		t.Error("the row carries no next instant")
+	}
+
+	// The daemon it autostarted is the one that answers the next call.
+	out, errOut, status = w.run("job", "list")
+	if status != 0 {
+		t.Fatalf("job list exited %d: %s%s", status, out, errOut)
+	}
+	if !strings.Contains(out, "nightly-sweep") || !strings.Contains(out, "0 3 * * *") {
+		t.Fatalf("job list printed %q", out)
+	}
+
+	// An expression that does not parse is refused when the row is written,
+	// with the §6.3 status for a caller's own input.
+	out, _, status = w.run("job", "add", "broken", "0 3 * *", "task",
+		"--args", `{"title":"never"}`, "--json")
+	if status != 2 {
+		t.Fatalf("a bad expression exited %d, want 2 (USAGE): %s", status, out)
+	}
+	if !strings.Contains(out, "USAGE") {
+		t.Errorf("the refusal printed %q", out)
+	}
+}
+
 // The shipped binary answers with its own version and the contract it
 // satisfies, with no daemon running at all (§13.4).
 func TestTheShippedBinaryNamesItselfAndItsContract(t *testing.T) {
@@ -346,7 +407,11 @@ func TestTheMCPDoorServesTheSameVerbsOverStdio(t *testing.T) {
 		served[tool.Name] = true
 	}
 	// The same list the parity test pins, reached through the real door.
-	for _, want := range []string{"doctor", "dump", "events", "parked_list", "parked_resolve", "stop"} {
+	for _, want := range []string{
+		"doctor", "dump", "events",
+		"job_add", "job_list", "job_remove", "job_enable", "job_disable",
+		"parked_list", "parked_resolve", "stop",
+	} {
 		if !served[want] {
 			t.Errorf("the shipped MCP door does not serve %q; it serves %v", want, served)
 		}

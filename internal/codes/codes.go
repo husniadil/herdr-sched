@@ -74,6 +74,8 @@ const (
 	// NotRunning is a verb that needs a live daemon and found none. Only
 	// stop answers with it: every other verb starts one rather than refuse.
 	NotRunning Reason = "NOT_RUNNING"
+	// AlreadyExists is a row written under a name another row already holds.
+	AlreadyExists Reason = "ALREADY_EXISTS"
 	// AlreadyResolved is a parked action a second resolver reached after the
 	// first one had already decided it.
 	AlreadyResolved Reason = "ALREADY_RESOLVED"
@@ -87,6 +89,7 @@ var carries = map[Reason]Code{
 	AlreadyRunning:  Conflict,
 	NotRunning:      Conflict,
 	AlreadyResolved: Conflict,
+	AlreadyExists:   Conflict,
 }
 
 // Error is a failure carrying a contract code.

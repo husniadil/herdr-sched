@@ -13,10 +13,10 @@ by section number. Read it before changing any seam it names, and record a
 knowing divergence in `docs/contract-notes.md` rather than leaving it to be
 discovered.
 
-**This build is the common foundation only.** No job, no trigger, no action
-verb. What is here is the skeleton: one verb registry, both doors, the socket
-protocol, the daemon, the JSON store, the config, the policy gate, the test
-harness.
+**This build is the cron half.** Jobs fire on a schedule; there is no trigger
+and no inbound door. Beside the jobs is the skeleton: one verb registry, both
+doors, the socket protocol, the daemon, the JSON store, the config, the policy
+gate, the test harness.
 
 ## Commands
 
@@ -60,6 +60,10 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
 - **Fail loud, idle safe.** When a sibling is unreachable, say so and keep
   ticking. Never guess at state, never queue writes for later, and never
   describe a mitigation as a fix.
+- **A schedule fires once per instant, never twice.** The cursor on a job row
+  is the last SCHEDULED instant it was decided for, it moves before the action
+  fires, and it moves whether the action fired, failed or was skipped. Cron
+  arithmetic is UTC and only UTC.
 
 ## The store
 
@@ -67,7 +71,8 @@ A JSON document, not SQLite, and the reason is in the README and in
 `docs/contract-notes.md`. Two rules travel with it:
 
 - **Every entity has its own trail beside it**, `<entity>_events`, written in
-  the same save. Today that is `parked` and `parked_events`. A new entity
+  the same save. Today that is `parked`/`parked_events` and `jobs`/`job_events`,
+  with `run_events` as the trail that has no rows beside it. A new entity
   brings its own; nothing is split out of a shared trail later.
 - **The document is written whole**, through a temp file and a rename, so a
   change and the event recording it can never land one without the other, and

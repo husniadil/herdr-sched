@@ -21,6 +21,7 @@ import (
 
 	"github.com/husniadil/herdr-sched/internal/codes"
 	"github.com/husniadil/herdr-sched/internal/config"
+	"github.com/husniadil/herdr-sched/internal/fire"
 	"github.com/husniadil/herdr-sched/internal/gate"
 	"github.com/husniadil/herdr-sched/internal/protocol"
 	"github.com/husniadil/herdr-sched/internal/store"
@@ -37,10 +38,16 @@ const SocketMode = 0o600
 type Daemon struct {
 	Store  *store.Store
 	Config *config.Config
-	// Interval is how often the tick runs. There is nothing on the tick yet;
-	// it exists from day one so the daemon that grows a schedule is not also
-	// growing its first timer then.
+	// Interval is how often the tick runs: how often the daemon asks which
+	// jobs are due. It is far shorter than any schedule, because a job is
+	// fired for the instant it was due at rather than for the tick that
+	// noticed it.
 	Interval time.Duration
+	// Fire performs the action a due job carries. A daemon without one still
+	// serves every verb and still keeps its cursors; what it cannot do is
+	// fire, and a schedule that came round says so on the run trail rather
+	// than passing quietly.
+	Fire *fire.Runner
 	// Version is this binary's version, for doctor.
 	Version string
 	Log     *log.Logger
@@ -66,6 +73,8 @@ type Daemon struct {
 	writeOnce sync.Once
 	// followers is every live `events --follow`, woken by each event written.
 	followers watchers
+	// skipped is what the last start passed over, for doctor (note 2).
+	skipped skips
 }
 
 // Lock takes the one-daemon lock, and holds it for as long as the returned
@@ -130,6 +139,10 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.answered = make(chan struct{})
 	ctx, done := context.WithCancel(ctx)
 	defer done()
+	// The catch-up pass, before the first connection is answered: every job
+	// whose instant came round while this daemon was down is decided once,
+	// here, rather than by whichever tick happens first (note 2).
+	d.runDue(ctx, true)
 	ticking := make(chan struct{})
 	go func() {
 		defer close(ticking)
@@ -191,9 +204,10 @@ func (d *Daemon) Cleanup(ln net.Listener) {
 	}
 }
 
-// tick is the §11.5 bounded timer. It runs on its interval and does nothing
-// yet: this plugin's first schedule and first trigger land here, and the timer
-// is in place so that change is one function rather than a new lifecycle.
+// tick is the §11.5 bounded timer: every interval it asks the pure core which
+// jobs are due and performs the answer. Nothing is computed from the tick
+// itself — a job fires for the SCHEDULED instant it was due at, so a tick that
+// ran late fires the same thing a tick that ran on time would have.
 func (d *Daemon) tick(ctx context.Context) {
 	t := time.NewTicker(d.interval())
 	defer t.Stop()
@@ -202,6 +216,7 @@ func (d *Daemon) tick(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			d.runDue(ctx, false)
 		}
 	}
 }
@@ -284,6 +299,16 @@ func (d *Daemon) serve(ctx context.Context, v verbs.Verb, req protocol.Request) 
 		return encode(DumpReport{Version: doc.Version, Path: d.Store.Path, Document: doc}, nil)
 	case "events":
 		return encode(d.events(req))
+	case "job.add":
+		return encode(d.addJob(req))
+	case "job.list":
+		return encode(d.listJobs(req))
+	case "job.remove":
+		return encode(d.removeJob(req))
+	case "job.enable":
+		return encode(d.setJobEnabled(req, true))
+	case "job.disable":
+		return encode(d.setJobEnabled(req, false))
 	case "parked.list":
 		held := d.Store.Parked()
 		return encode(ParkedReport{Parked: held, Count: len(held)}, nil)
@@ -356,6 +381,7 @@ type DoctorReport struct {
 	// listed.
 	Orphans []string     `json:"orphan_store_dirs"`
 	Tick    string       `json:"tick"`
+	Jobs    JobsHealth   `json:"jobs"`
 	Config  ConfigHealth `json:"config"`
 	Gate    GateHealth   `json:"gate"`
 	Events  EventsHealth `json:"events"`
@@ -382,6 +408,20 @@ type GateHealth struct {
 	// Parked is how many deferrals are waiting on the operator, or were
 	// resolved and then failed. Both want a human.
 	Parked int `json:"parked"`
+}
+
+// JobsHealth is the cron half as doctor reports it, and the one place note
+// 2's "doctor says which jobs were skipped at the last start" is answered.
+// The trail carries the same skips; this is what an operator sees without
+// reading it.
+type JobsHealth struct {
+	Count   int `json:"count"`
+	Enabled int `json:"enabled"`
+	// SkippedAtStart is every job whose scheduled instant came round while
+	// this daemon was down and was not fired. A job with catch_up is here too
+	// when it stood in for more than one instant: it fired once, and the rest
+	// did not happen.
+	SkippedAtStart []SkipReport `json:"skipped_at_start"`
 }
 
 // EventsHealth is the §8 trail as doctor reports it.
@@ -425,7 +465,17 @@ func (d *Daemon) doctor() DoctorReport {
 		rep.Config = ConfigHealth{Path: d.Config.Path, Present: d.Config.Present}
 		rep.Events.Hook = d.Config.OnEvent
 	}
+	rep.Jobs.SkippedAtStart = d.skipped.all()
+	if rep.Jobs.SkippedAtStart == nil {
+		rep.Jobs.SkippedAtStart = []SkipReport{}
+	}
 	if d.Store != nil {
+		for _, j := range d.Store.Jobs() {
+			rep.Jobs.Count++
+			if j.Enabled {
+				rep.Jobs.Enabled++
+			}
+		}
 		rep.Store = d.Store.Path
 		rep.Gate.Parked = d.Store.WaitingParked()
 		rep.Events.Trail = len(d.Store.Trail())
@@ -623,6 +673,10 @@ func CheckArg(v verbs.Verb, a verbs.Arg, raw any) error {
 		}
 		if !ok || n != float64(int(n)) {
 			return codes.Refusef(codes.Invalid, "%s wants %s as a whole number", v.Name, a.Name)
+		}
+	case verbs.Object:
+		if _, ok := raw.(map[string]any); !ok {
+			return codes.Refusef(codes.Invalid, "%s wants %s as an object of named values", v.Name, a.Name)
 		}
 	default:
 		s, ok := raw.(string)

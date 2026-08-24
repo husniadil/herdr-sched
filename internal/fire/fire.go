@@ -37,6 +37,11 @@ type Runner struct {
 	// HTaskBin, HMailBin and HDisBin override the binaries resolved off
 	// PATH. They are empty in production and a test's stand-in otherwise.
 	HTaskBin, HMailBin, HDisBin string
+	// Emit hands each run to whatever else wants it: the live `events
+	// --follow` subscriptions and the §8.3 hook. Without it a run would reach
+	// the store and no follower, and an event written in one place and not
+	// the other is the one thing that split cannot be allowed to be.
+	Emit func(store.Event)
 
 	// detached counts the shell actions still running, so a caller that
 	// needs to see their runs on the trail can wait for them.
@@ -150,6 +155,9 @@ func (r *Runner) record(src action.Source, a action.Action, kind string, detail 
 	ev := store.NewEvent(r.now(), store.EntityRun, kind, src.ID, src.Principal(), detail)
 	if err := r.Store.RecordRun(ev); err != nil {
 		return err
+	}
+	if r.Emit != nil {
+		r.Emit(ev)
 	}
 	if kind == store.KindFailed {
 		if reason, ok := detail["error"].(string); ok {

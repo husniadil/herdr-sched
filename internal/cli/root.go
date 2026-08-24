@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 
@@ -107,9 +108,15 @@ func newGroup(name string) *cobra.Command {
 	}
 }
 
+// groupShort is the one line a parent command shows. A group carries
+// subcommands and does nothing itself, so its help is what the group is ABOUT
+// rather than what it does.
 func groupShort(name string) string {
-	if name == "parked" {
+	switch name {
+	case "parked":
 		return "Work with the actions the policy gate deferred"
+	case "job":
+		return "Work with the schedules that fire on a cron expression"
 	}
 	return name
 }
@@ -143,6 +150,11 @@ func buildVerb(v verbs.Verb, g *globals, run Runner) *cobra.Command {
 	strs := map[string]*string{}
 	bools := map[string]*bool{}
 	ints := map[string]*int{}
+	// An object is one JSON document in a string flag. A repeatable
+	// --arg key=value would be the friendlier line to type and has no shape
+	// on the other door, and a verb spelled differently on the two doors is
+	// the one thing the registry exists to prevent.
+	objects := map[string]*string{}
 	for _, a := range v.Args {
 		if a.Positional {
 			continue
@@ -154,6 +166,8 @@ func buildVerb(v verbs.Verb, g *globals, run Runner) *cobra.Command {
 			bools[a.Name] = cmd.Flags().Bool(a.Name, false, a.Desc)
 		case verbs.Int:
 			ints[a.Name] = cmd.Flags().Int(a.Name, 0, a.Desc)
+		case verbs.Object:
+			objects[a.Name] = cmd.Flags().String(a.Name, "", a.Desc+` (one JSON object, e.g. '{"title":"nightly sweep"}')`)
 		}
 	}
 	// --follow is the CLI's own flag, not the registry's: it is a property of
@@ -193,6 +207,17 @@ func buildVerb(v verbs.Verb, g *globals, run Runner) *cobra.Command {
 			if cmd.Flags().Changed(name) {
 				args[name] = *p
 			}
+		}
+		for name, p := range objects {
+			if !cmd.Flags().Changed(name) {
+				continue
+			}
+			var fields map[string]any
+			if err := json.Unmarshal([]byte(*p), &fields); err != nil {
+				return codes.Refusef(codes.Invalid,
+					"--%s is one JSON object and %q is not one: %v", name, *p, err)
+			}
+			args[name] = fields
 		}
 		req, err := g.request(v, args)
 		if err != nil {

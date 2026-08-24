@@ -95,7 +95,7 @@ func TestEveryRequiredArgumentIsPositional(t *testing.T) {
 				t.Errorf("verb %q takes %q with no description", v.Name, a.Name)
 			}
 			switch a.Type {
-			case String, Bool, Int:
+			case String, Bool, Int, Object:
 			default:
 				t.Errorf("verb %q takes %q as %q, which is no argument kind", v.Name, a.Name, a.Type)
 			}

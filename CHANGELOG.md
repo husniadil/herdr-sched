@@ -6,10 +6,40 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-The action vocabulary: what a signal does when it fires. Nothing schedules or
-listens yet — a job and a trigger both land on this.
+The cron half: jobs that fire on a schedule, and the vocabulary they fire.
+Nothing listens yet — the trigger half lands on the same action side.
 
 ### Added
+
+- `internal/cron`, a five-field cron parser and the two answers everything
+  else is built on: the next instant strictly after a time, and the last one
+  at or before it. `*`, `*/n`, `a-b`, `a-b/n`, comma lists, three-letter month
+  and day names, and cron's own or-rule when both day fields are restricted.
+  Every expression is read in **UTC**, and `docs/contract-notes.md` records
+  why there is no per-job timezone.
+- `internal/job`, the job entity and the pure due-computation: given the
+  clock, the rows and the cursor each row carries, which jobs fire now. No
+  clock of its own, no goroutine, no store — so a schedule missed for three
+  days, a catch-up standing in for two instants and a hand-edited expression
+  are all pinned by tests with no `time.Sleep` and no process in them.
+- `job add`, `job list`, `job remove`, `job enable` and `job disable` on both
+  doors, gated as `sched.job.add`, `sched.job.remove`, `sched.job.enable` and
+  `sched.job.disable`. A job carries a cron expression, one action from the
+  vocabulary and a per-job `catch_up`, and everything that could not fire is
+  refused when the row is **written**.
+- `jobs` and `job_events` in the store, the entity and its own trail written
+  in the same save (§5.5).
+- The tick fires what is due, as `cron:<job id>` (§3.2). The cursor is the
+  **scheduled instant**, and it moves before the action fires and whether the
+  action fired, failed or was skipped: a schedule fires once per instant and
+  never twice.
+- A schedule missed while the daemon was down is **skipped** — cron's own
+  semantics — recorded as `sched.job.skipped` and named by `hsched doctor`.
+  `catch_up` fires such a job once at the next start, for the latest missed
+  instant alone.
+- `verbs.Object`, an argument that is a set of named values: an object in the
+  MCP schema and one JSON document in a CLI flag, which is what lets an
+  action's own arguments spell the same way on both doors.
 
 - `internal/action`, the closed vocabulary of four kinds — `task`, `mail`,
   `dispatch`, `shell` — validated in the pure core at **create** time: an

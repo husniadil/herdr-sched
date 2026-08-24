@@ -10,9 +10,9 @@
 // Every entity here has a trail of its own beside it, `<entity>_events`, and
 // the two are saved together because the document is written whole: a change
 // and the event that records it can never land one without the other. Today
-// that is the actions the policy gate parked, and the runs a signal's actions
-// fired; a job and a trigger arrive the same way, each with its own sibling
-// trail. A run has a trail and no list of rows beside it, because the run
+// that is the actions the policy gate parked, the cron jobs that fire them,
+// and the runs a signal's actions fired; a trigger arrives the same way, with
+// its own sibling trail. A run has a trail and no list of rows beside it, because the run
 // history IS the §8 stream and there is no second table (note 2).
 package store
 
@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/husniadil/herdr-sched/internal/codes"
+	"github.com/husniadil/herdr-sched/internal/job"
 )
 
 // Version is the document's shape. A document from a version this binary does
@@ -45,6 +46,10 @@ type Document struct {
 	// list above rather than one trail shared by everything, so a second
 	// entity arrives with its own and neither has to be split out later.
 	ParkedEvents []Event `json:"parked_events"`
+	// Jobs is every cron schedule (note 2), and JobEvents is that entity's
+	// own §8.1 trail beside it.
+	Jobs      []job.Job `json:"jobs"`
+	JobEvents []Event   `json:"job_events"`
 	// RunEvents is the run history: every time a signal's action fired, and
 	// how it went. It is a trail with no list beside it on purpose (note 2):
 	// the run history IS the §8 stream, and there is no second table holding
@@ -106,6 +111,8 @@ func (s *Store) copy() Document {
 		Version:      Version,
 		Parked:       append([]Parked{}, s.doc.Parked...),
 		ParkedEvents: append([]Event{}, s.doc.ParkedEvents...),
+		Jobs:         append([]job.Job{}, s.doc.Jobs...),
+		JobEvents:    append([]Event{}, s.doc.JobEvents...),
 		RunEvents:    append([]Event{}, s.doc.RunEvents...),
 	}
 }
@@ -116,7 +123,7 @@ func (s *Store) copy() Document {
 func (s *Store) Trail() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return merge(s.doc.ParkedEvents, s.doc.RunEvents)
+	return merge(s.doc.ParkedEvents, s.doc.JobEvents, s.doc.RunEvents)
 }
 
 func merge(trails ...[]Event) []Event {
@@ -139,6 +146,7 @@ func (s *Store) update(fn func(*Document) error) error {
 		return err
 	}
 	next.ParkedEvents = Rotate(next.ParkedEvents)
+	next.JobEvents = Rotate(next.JobEvents)
 	next.RunEvents = Rotate(next.RunEvents)
 	if err := s.write(next); err != nil {
 		return err

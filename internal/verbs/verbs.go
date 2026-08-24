@@ -5,13 +5,19 @@
 // something an operator discovers.
 package verbs
 
-// String, Bool and Int are the kinds of argument a verb takes. The type is in
-// the registry rather than at a door, so a switch is a flag on the CLI and a
-// boolean on MCP without either door deciding that for itself.
+// String, Bool, Int and Object are the kinds of argument a verb takes. The
+// type is in the registry rather than at a door, so a switch is a flag on the
+// CLI and a boolean on MCP without either door deciding that for itself.
 const (
 	String = "string"
 	Bool   = "bool"
 	Int    = "int"
+	// Object is a set of named values — an action's own arguments, whose
+	// names depend on which action it is. On the MCP door it is an object in
+	// the schema, and on the CLI it is a flag carrying one JSON document,
+	// because a repeatable --arg key=value is a shape the other door has no
+	// way to spell.
+	Object = "object"
 )
 
 // Arg is one parameter of a verb. A positional arg is a CLI positional and an
@@ -64,13 +70,14 @@ type Verb struct {
 
 // All is the registry. Order is the order the CLI lists them in.
 //
-// This is the common foundation and nothing more: the seven verbs §13 makes
-// every sibling spell the same way, minus `status` and `sweep`, which are
-// held back rather than stubbed. `status` answers what a plugin is doing and
-// this one is not doing anything yet; `sweep` is a reconciliation pass and
-// there is nothing to reconcile until there is a job or a trigger. A verb
-// that exists and answers nothing teaches a caller a shape it will have to
-// unlearn.
+// Beside the cron half's own five verbs are the seven §13 makes every sibling
+// spell the same way, minus `status` and `sweep`, which are held back rather
+// than stubbed. `status` answers what a plugin is DOING, and half a plugin —
+// jobs without triggers — would answer it in a shape that has to change once
+// the other half lands; `sweep` is a reconciliation pass, and a cron job needs
+// none: the cursor on the row IS the reconciliation, re-read from the store on
+// every start. A verb that exists and answers nothing teaches a caller a shape
+// it will have to unlearn.
 var All = []Verb{
 	{
 		Name: "doctor", MCP: "doctor", CLI: []string{"doctor"},
@@ -105,6 +112,74 @@ var All = []Verb{
 			{Name: "since", Type: String, Desc: "An event id, or a Unix-millisecond timestamp, to resume after"},
 			{Name: "limit", Type: Int, Desc: "Stop after this many events"},
 		},
+	},
+	{
+		Name: "job.add", MCP: "job_add", CLI: []string{"job", "add"},
+		Short: "Write down a schedule and what it fires",
+		Long: "A job is a five-field cron expression, one action from the vocabulary, " +
+			"and whether a schedule missed while the daemon was down should fire once " +
+			"at the next start. The expression is read in UTC, always: a local zone " +
+			"would put a schedule inside the hour a DST transition either repeats or " +
+			"never has. Everything that could not fire is refused HERE rather than at " +
+			"3am — an expression that does not parse, an action nothing can run, an " +
+			"argument its kind does not take. Every call the job makes declares itself " +
+			"as `cron:<id>` (§3.2), so the actor on the sibling's own trail is the " +
+			"schedule rather than this plugin.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The name for this schedule; it is the id half of the `cron:<job id>` principal its calls declare", Required: true, Positional: true},
+			{Name: "schedule", Type: String, Desc: "The five-field cron expression, read in UTC: minute hour day-of-month month day-of-week", Required: true, Positional: true},
+			{Name: "action", Type: String, Desc: "What it fires: task, mail, dispatch or shell", Required: true, Positional: true},
+			{Name: "args", Type: Object, Desc: "The action's own arguments, e.g. {\"title\": \"nightly sweep\"} for a task"},
+			{Name: "catch_up", Type: Bool, Desc: "Fire ONCE at the next start when the daemon was down for a scheduled instant; without it the miss is skipped, which is cron's own semantics"},
+		},
+		Mutates: true,
+		Gated:   "sched.job.add",
+	},
+	{
+		Name: "job.list", MCP: "job_list", CLI: []string{"job", "list"},
+		Short: "List the schedules and when each one next fires",
+		Long: "Every job in this project, with its expression, its action, whether it " +
+			"is enabled, when it last fired and when it fires next. A job that is " +
+			"disabled is listed and says so: it is kept rather than removed, because " +
+			"disabling is not deleting. Pass --all-projects to read every project's.",
+	},
+	{
+		Name: "job.remove", MCP: "job_remove", CLI: []string{"job", "remove"},
+		Short: "Take a schedule off for good",
+		Long: "The row and its cursor go; the job's trail stays, because what a " +
+			"schedule DID is not undone by removing it. To stop a job without losing " +
+			"it, disable it instead.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The job to remove", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.job.remove",
+	},
+	{
+		Name: "job.enable", MCP: "job_enable", CLI: []string{"job", "enable"},
+		Short: "Let a schedule fire again",
+		Long: "A job enabled after a spell disabled does NOT fire what it missed: the " +
+			"cursor is where it was, and the first instant after this one is what " +
+			"fires. Enabling a job that is already enabled changes nothing and records " +
+			"nothing.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The job to enable", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.job.enable",
+	},
+	{
+		Name: "job.disable", MCP: "job_disable", CLI: []string{"job", "disable"},
+		Short: "Stop a schedule from firing, without losing it",
+		Long: "The row stays and the tick passes over it. Nothing is recorded as " +
+			"skipped while it is off — an operator who disabled a job is not owed a " +
+			"skip record every night — so a job re-enabled later fires from the next " +
+			"instant and not from the backlog.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The job to disable", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.job.disable",
 	},
 	{
 		Name: "parked.list", MCP: "parked_list", CLI: []string{"parked", "list"},

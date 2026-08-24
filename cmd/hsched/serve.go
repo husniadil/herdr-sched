@@ -11,6 +11,7 @@ import (
 
 	"github.com/husniadil/herdr-sched/internal/config"
 	"github.com/husniadil/herdr-sched/internal/daemon"
+	"github.com/husniadil/herdr-sched/internal/fire"
 	"github.com/husniadil/herdr-sched/internal/store"
 	"github.com/husniadil/herdr-sched/internal/version"
 )
@@ -82,8 +83,10 @@ func serve(f *daemonFlags) error {
 		log.Printf("a store left by another build could be under %s; this daemon is not using it", dir)
 	}
 
+	runner := &fire.Runner{Store: st}
 	d := &daemon.Daemon{
 		Store:    st,
+		Fire:     runner,
 		Config:   cfg,
 		Interval: interval,
 		Version:  version.Version,
@@ -91,7 +94,14 @@ func serve(f *daemonFlags) error {
 		LogPath:  f.logPath,
 		Lock:     lock,
 	}
+	// Every run reaches the followers and the §8.3 hook the same way every
+	// other event does.
+	runner.Emit = d.Emitted
 	err = d.Serve(ctx, ln)
+	// A shell action is detached from the tick, so the ones still running
+	// have their outcome to write. Waiting for them is what keeps a run off
+	// the trail from being a run that never happened.
+	runner.Wait()
 	log.Print("stopping")
 	if errors.Is(err, context.Canceled) {
 		return nil

@@ -8,13 +8,14 @@ contract already names for it: `cron:<job id>` or `trigger:<id>` (§3.1), so
 the actor is on every event trail the action touches. One binary, `hsched`, is
 the daemon and both doors.
 
-**Nothing schedules or listens yet.** There is no job, no trigger and no
-action verb; what is here is the skeleton every sibling shares, plus the
-action vocabulary those two will fire — one verb registry both doors are generated from, the four contract
-globals, the socket protocol, the daemon with its lock and its tick, the JSON
-store with an events trail per entity, the config document, the policy gate,
-and the test harness. The verbs are `doctor`, `dump`, `events`,
-`parked list`, `parked resolve` and `stop`.
+**The cron half is here; nothing listens yet.** A job fires on a schedule,
+and there is no trigger and no inbound URL. What is here beside the jobs is
+the skeleton every sibling shares — one verb registry both doors are generated
+from, the four contract globals, the socket protocol, the daemon with its lock
+and its tick, the JSON store with an events trail per entity, the config
+document, the policy gate, and the test harness. The verbs are `job add`,
+`job list`, `job remove`, `job enable`, `job disable`, `doctor`, `dump`,
+`events`, `parked list`, `parked resolve` and `stop`.
 
 ## Install
 
@@ -58,6 +59,9 @@ terminal loses no verb.
 On the CLI:
 
 ```sh
+hsched job add nightly-sweep "0 3 * * *" task --args '{"title":"sweep the board"}'
+hsched job list                   # every schedule here, and when each fires next
+hsched job disable nightly-sweep  # stop it firing, without losing it
 hsched doctor                     # can this plugin work at all
 hsched events --follow            # the append-only trail, as it is written
 hsched dump --json                # the whole store, one document
@@ -74,7 +78,8 @@ hsched mcp
 ```
 
 It registers as `herdr-sched` and serves the verbs under their bare names —
-`doctor`, `dump`, `events`, `parked_list`, `parked_resolve`, `stop` — so a
+`job_add`, `job_list`, `job_remove`, `job_enable`, `job_disable`, `doctor`,
+`dump`, `events`, `parked_list`, `parked_resolve`, `stop` — so a
 caller reads them as herdr-sched's, not as names that repeat the binary. A
 dotted verb becomes an underscored tool name, and that name is a field on the
 verb rather than a transformation applied at the door.
@@ -101,6 +106,62 @@ to borrow a principal from, and answers once, because a stream is not a tool
 call. `internal/mcpdoor`'s `Globals` table records each one, and a test walks
 the whole subcommand tree against it — a flag that is neither mapped nor
 excluded with a reason is a failing test.
+
+## Jobs
+
+A job is a five-field cron expression, one action from the vocabulary below,
+and a flag saying what to do about a schedule the daemon was down for:
+
+```sh
+hsched job add nightly-sweep "0 3 * * *" task --args '{"title":"sweep the board"}'
+hsched job add heartbeat "*/5 * * * *" shell --args '{"command":"./bin/health"}' --catch_up
+```
+
+The expression is the standard five fields — minute, hour, day of month,
+month, day of week — with `*`, `*/n`, `a-b`, `a-b/n`, comma lists, and
+three-letter month and day names. Both day fields restricted is an **or**, the
+way every cron reads it. The parser is `internal/cron`, a hundred lines of
+bit-setting over five bounded fields, and not a dependency: the syntax has not
+moved in forty years, and herdr-dispatch's README is where the rule about what
+earns a dependency is written down.
+
+**Every expression is read in UTC**, and the arithmetic is UTC alone. A local
+zone would put a schedule inside the hour a DST transition either repeats or
+never has, where "3am daily" means twice one night and never another. An
+operator who wants a local hour writes the UTC hour it falls on.
+
+Everything that could not fire is refused when the job is **written**: an
+expression that does not parse, an action nothing can run, an argument its
+kind never takes. `--args` is one JSON object, which is what makes the same
+call spell the same way on both doors.
+
+### What a missed schedule does
+
+The daemon holds a cursor per job: the last **scheduled instant** it was
+decided for, not the clock it fired at. Everything below follows from that
+one field.
+
+- A tick that finds an instant has passed fires the action **once**, for that
+  instant, and moves the cursor. Ticks run far more often than any schedule,
+  so a schedule fires once however many ticks pass over it.
+- The cursor moves **before** the action fires, and it moves whether the
+  action fired, failed or was skipped. A daemon that dies mid-action leaves a
+  schedule that did not fire — which the trail says — rather than one that
+  fires again on the next start.
+- A schedule missed while the daemon was **down** is **skipped**, which is
+  cron's own semantics and the default here. The skip is recorded on the job's
+  trail and named by `hsched doctor`, so a schedule that stopped working never
+  looks like one with nothing to do.
+- `--catch_up` fires such a job **once** at the next start, for the latest
+  missed instant. Not once per miss: firing a backlog turns one missed nightly
+  sweep into a week of them at once. The instants it stood in for are recorded
+  as skipped anyway.
+- A job **disabled** is passed over silently and records no skip. Re-enabled,
+  it fires from the next instant rather than from the backlog.
+
+The decision is a pure function — `internal/job`.`Due` is handed the clock,
+the rows and the cursors, and answers what should happen — so every case above
+is pinned by a test with no `time.Sleep` and no process in it.
 
 ## The action vocabulary
 
@@ -130,8 +191,9 @@ with nothing to do.
 Every entity in the store keeps its own trail beside it, `<entity>_events`,
 saved in the same write: a change and the event recording it can never land
 one without the other. Today that is the actions the policy gate parked, in
-`parked_events`, and the runs a signal's actions fired, in `run_events`. A job
-and a trigger arrive the same way, each with its own sibling trail.
+`parked_events`, the cron jobs in `job_events`, and the runs a signal's
+actions fired, in `run_events`. A trigger arrives the same way, with its own
+sibling trail.
 
 A run is a trail with no list of rows beside it, and deliberately so: the run
 history IS the §8 stream, and a second table holding the same facts in another
@@ -161,9 +223,13 @@ hook at all.
 ## The policy gate
 
 Every verb that changes the world passes one gate before doing anything
-(§9.1). This build gates one verb:
+(§9.1). This build gates five:
 
 ```
+sched.job.add
+sched.job.remove
+sched.job.enable
+sched.job.disable
 sched.stop
 ```
 

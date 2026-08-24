@@ -127,13 +127,26 @@ func TestTheSubcommandTreeHoldsOnlyVerbsAndTheNamedExemptions(t *testing.T) {
 		"mcp":        "§7.1: it IS the MCP door; a tool that starts the door serving it is a loop",
 		"version":    "§13.4: it answers off this binary rather than the daemon, so it works with no daemon at all — doctor relays the same two facts over both doors",
 		"completion": "cobra's own shell-completion command, which describes this binary to a shell",
-		"parked":     "a group, which carries subcommands and does nothing itself",
+	}
+	// A group — `parked`, `job` — is a command that carries subcommands and
+	// does nothing itself. It is read off the registry rather than listed
+	// here, so a namespaced verb brings its own parent and no one has to
+	// remember to exempt it.
+	groups := map[string]bool{}
+	for _, v := range verbs.All {
+		if len(v.CLI) > 1 {
+			groups[v.CLI[0]] = true
+		}
 	}
 	var walk func(*cobra.Command, []string)
 	walk = func(c *cobra.Command, path []string) {
 		for _, sub := range c.Commands() {
 			here := append(append([]string{}, path...), sub.Name())
 			if _, ok := verbs.ByCLI(here); ok {
+				walk(sub, here)
+				continue
+			}
+			if groups[sub.Name()] && len(here) == 1 {
 				walk(sub, here)
 				continue
 			}
@@ -145,11 +158,7 @@ func TestTheSubcommandTreeHoldsOnlyVerbsAndTheNamedExemptions(t *testing.T) {
 			}
 			// An exemption covers what the command carries under it: cobra's
 			// `completion` has one child per shell, and naming the parent is
-			// naming the whole of it. A group is the exception — it is exempt
-			// as a command and its children are verbs, so the walk goes on.
-			if sub.Name() == "parked" {
-				walk(sub, here)
-			}
+			// naming the whole of it.
 		}
 	}
 	walk(newRootCmd(), nil)

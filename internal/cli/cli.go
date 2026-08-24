@@ -107,6 +107,13 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 		fmt.Fprintf(out, "  tick        every %s\n", rep.Tick)
 		fmt.Fprintf(out, "  events      %d held, %d kept per entity, hook %s\n",
 			rep.Events.Trail, rep.Events.Max, or(strings.Join(rep.Events.Hook, " "), "not configured"))
+		fmt.Fprintf(out, "  jobs        %d held, %d enabled\n", rep.Jobs.Count, rep.Jobs.Enabled)
+		for _, skip := range rep.Jobs.SkippedAtStart {
+			// note 2: the operator hears which schedules did not fire while
+			// this daemon was down, without reading the trail for it.
+			fmt.Fprintf(out, "  skipped     %s missed %s instant(s), %s to %s\n",
+				skip.Job, countOf(skip), skip.From, skip.Through)
+		}
 		fmt.Fprintf(out, "  gate        %s\n", gateLine(rep.Gate))
 		for _, dir := range rep.Orphans {
 			// Named, never removed: a store this daemon is not using may still
@@ -127,6 +134,8 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 		fmt.Fprintf(out, "store version %d at %s\n", rep.Version, or(rep.Path, "memory only"))
 		fmt.Fprintf(out, "  parked        %d rows, %d events\n",
 			len(rep.Document.Parked), len(rep.Document.ParkedEvents))
+		fmt.Fprintf(out, "  jobs          %d rows, %d events\n",
+			len(rep.Document.Jobs), len(rep.Document.JobEvents))
 		// A run has no rows of its own: the trail IS the run history.
 		fmt.Fprintf(out, "  runs          %d events\n", len(rep.Document.RunEvents))
 	case "events":
@@ -143,6 +152,32 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 				return err
 			}
 		}
+	case "job.list":
+		var rep daemon.JobsReport
+		if err := json.Unmarshal(result, &rep); err != nil {
+			return err
+		}
+		if rep.Count == 0 {
+			fmt.Fprintln(out, "no schedules here yet (hsched job add <id> <schedule> <action>)")
+			return nil
+		}
+		for _, row := range rep.Jobs {
+			writeJob(out, row)
+		}
+	case "job.add", "job.remove", "job.enable", "job.disable":
+		var change daemon.JobChange
+		if err := json.Unmarshal(result, &change); err != nil {
+			return err
+		}
+		if !change.Changed {
+			// Not a refusal: it is the state the caller wanted, and saying
+			// nothing moved is what keeps a second run from reading as a
+			// second change.
+			fmt.Fprintf(out, "%s was already %s\n", change.Job.ID, change.State)
+			return nil
+		}
+		fmt.Fprintf(out, "%s %s\n", change.Job.ID, change.State)
+		writeJob(out, change.Job)
 	case "parked.list":
 		var rep daemon.ParkedReport
 		if err := json.Unmarshal(result, &rep); err != nil {
@@ -177,6 +212,35 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 	return nil
 }
 
+// writeJob is one schedule as an operator reads it: what it is, when it last
+// fired and when it fires next.
+func writeJob(out io.Writer, row daemon.JobRow) {
+	state := "enabled"
+	if !row.Enabled {
+		state = "disabled"
+	}
+	fmt.Fprintf(out, "  %-20s %-16s %-9s %-8s last %s  next %s\n",
+		row.ID, row.Schedule, row.Action.Kind, state,
+		orNever(row.LastFiredMS), or(row.Next, "-"))
+	if row.CatchUp {
+		fmt.Fprintf(out, "  %-20s catch_up: a schedule missed while the daemon was down fires once at the next start\n", "")
+	}
+	if row.Unreadable != "" {
+		// A row hand-edited into something that cannot be scheduled. It is
+		// held and it never fires, and the operator has to see which.
+		fmt.Fprintf(out, "  %-20s and it cannot be scheduled: %s\n", "", row.Unreadable)
+	}
+}
+
+// orNever renders a cursor that has never moved as the words for it, because
+// a Unix epoch printed as 1970 reads as a schedule that fired long ago.
+func orNever(ms int64) string {
+	if ms == 0 {
+		return "never"
+	}
+	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
+}
+
 // configLine says which config path won and whether there was a file there.
 // §10.1 fixes one config path per plugin, so a file the operator is editing
 // anywhere else is a leftover, and this is the line that makes it recognisable.
@@ -188,6 +252,14 @@ func configLine(c daemon.ConfigHealth) string {
 		return c.Path + " (no file there: every default applies)"
 	}
 	return c.Path
+}
+
+// countOf says whether a skip count is the number or a floor.
+func countOf(skip daemon.SkipReport) string {
+	if skip.AtLeast {
+		return fmt.Sprintf("at least %d", skip.Missed)
+	}
+	return strconv.Itoa(skip.Missed)
 }
 
 // gateLine is the §9 policy gate in one line: whether one is configured, what

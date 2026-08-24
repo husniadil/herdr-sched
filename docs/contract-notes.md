@@ -8,7 +8,7 @@ reason. A divergence that is written down is a decision; one that is not is a
 bug nobody has found yet.
 
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
-that day.
+that day. Amended 2026-08-25 with the cron half.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -30,8 +30,9 @@ table.
 
 What the document does carry from day one is the shape the siblings retrofitted
 late: **every entity has its own trail beside it**, `<entity>_events`, saved in
-the same write. Today that is `parked` and `parked_events`. A job and a trigger
-arrive the same way, and neither has to be split out of a shared trail later.
+the same write. Today that is `parked`/`parked_events` and `jobs`/`job_events`,
+with `run_events` as the trail that has no rows beside it. A trigger arrives
+the same way, and it does not have to be split out of a shared trail later.
 
 ## §13 parity — `status` and `sweep` are not here yet
 
@@ -40,16 +41,17 @@ parked.list · parked.resolve`, with `sweep` wherever the daemon has a
 reconciliation pass to run on demand. This build carries five of the seven and
 neither of the other two.
 
-`status` answers what a plugin is doing. This one is not doing anything yet:
-there is no job, no trigger and nothing bound. A `status` that answers an
-empty document teaches a caller a shape it will have to unlearn the moment
-there is something to report, and an agent that reads "nothing" from a verb
-that cannot say anything else has been told less than nothing.
+`status` answers what a plugin is DOING. Half a plugin — jobs and no triggers —
+would answer it in a shape that has to change the moment the other half lands,
+and a caller that bound to the first shape has been taught something it will
+have to unlearn. `hsched doctor` carries the job counts and the skipped-at-start
+list in the meantime, which is the part an operator actually asks for.
 
-`sweep` is a reconciliation pass, and the standard is explicit that a plugin
-which owns no reconciliation does not grow one to match. There is nothing to
-reconcile until a schedule can be missed or a trigger can be bound to a pane
-that goes away.
+`sweep` is a reconciliation pass on demand, and the standard is explicit that a
+plugin which owns no reconciliation does not grow one to match. A cron job needs
+none: the cursor on the row IS the reconciliation, and it is re-read from the
+store and acted on at every start. There is nothing to reconcile until a trigger
+can be bound to a pane that goes away.
 
 Both land with the work that gives them something to say. The registry test
 `TestTheCommonVerbsAreAllPresent` asserts their absence, so adding either is a
@@ -58,9 +60,41 @@ deliberate edit to that test rather than a silent divergence closing itself.
 ## §2.1 — no `[[panes]]`
 
 §2.1 as amended owes a plugin pane only where the plugin's concern includes an
-operator-facing view. This build has no schedule to show on one. `hsched
-doctor` and `hsched events` are its human surface until it does, and shipping
-an empty view now would be a promise of a list that is not there.
+operator-facing view. There is a list to show on one now — `hsched job list` —
+and it is still not shipped, because the view worth having is jobs AND triggers
+side by side, and building the first half twice is how it ends up in the shape
+the second half does not fit. `hsched job list`, `hsched doctor` and `hsched
+events` are the human surface until then. This is the entry to close when the
+trigger half lands.
+
+## The cron expression is UTC, and there is no timezone field
+
+The contract says nothing about how a schedule reads its clock; this plugin
+reads every expression in UTC and offers no per-job zone.
+
+A local zone puts a schedule inside the hour a DST transition either repeats or
+never has, where "3am daily" means twice on one night of the year and never on
+another. There is no answer to that an operator would not have to be told
+about, and the honest thing is to refuse the question rather than pick one of
+the two wrong answers silently. `internal/cron` therefore converts to UTC on
+the way in, and the README and the skill both say so where an operator writing
+a job will read it.
+
+The exit condition is a per-job `timezone` field, which is a real request the
+moment a fleet spans two of them. It arrives with the ambiguous-hour rule
+written down beside it — which of the two 02:30s fires, and what a skipped
+02:30 does — rather than as a field that inherits Go's own answer by accident.
+
+## The five-field parser is written here rather than pulled in
+
+`robfig/cron` is the obvious dependency and is not taken. The parser is under
+two hundred lines over five bounded fields against a syntax that has not moved
+in forty years, it has no runtime, no goroutine and no state, and the budget
+this repo keeps is the standard library plus the two libraries every sibling
+pins. A library would also bring its own scheduler, which is the half this
+plugin already owns and does differently: the cursor is on the row and is
+re-read from the store at every start, which is what makes a missed schedule a
+decision rather than a gap in a timer's memory.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 

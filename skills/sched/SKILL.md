@@ -11,16 +11,13 @@ a message over hmail, a worker through hdis, a shell command — as the
 principal the contract already names for it: `cron:<job id>` or
 `trigger:<id>`, so the actor is on every event trail the action touches.
 
-**Read this first: there is no job, trigger or action verb yet.** This build
-is the common foundation. If you were asked to create a schedule, add a
-trigger, or make something fire on a timer, `hsched` cannot do it today. Say
-so plainly rather than reaching for a verb that is not there — and do not
-reach for `crontab`, a background `sleep` loop, or a detached process instead.
-Scheduling is what this plugin exists to own, and standing up a second
-scheduler beside it is the thing that will be hardest to unpick later. Tell
-the operator what is missing and let them decide.
-
-What you *can* do is the six verbs every sibling spells the same way.
+**Read this first: there is a cron half and no trigger half yet.** A schedule
+is `job_add`. An inbound webhook or a file watcher is not here, and if you
+were asked for one, say so plainly rather than reaching for a verb that is not
+there — and do not reach for `crontab`, a background `sleep` loop, or a
+detached process instead, for a trigger OR for a schedule. Scheduling is what
+this plugin exists to own, and standing up a second scheduler beside it is the
+thing that will be hardest to unpick later.
 
 ## Reach for the tools, not the shell
 
@@ -32,6 +29,10 @@ not be: a dispatched worker pane can have the door and not the binary.
 
 | Tool | What it answers |
 | --- | --- |
+| `job_add` | Write down a schedule: a cron expression, one action, and whether to catch up a missed one. |
+| `job_list` | Every schedule here, with when it last fired and when it fires next. |
+| `job_remove` | Take one off for good. |
+| `job_enable` / `job_disable` | Stop one firing, or let it fire again, without losing it. |
 | `doctor` | Whether the plugin can work at all. Run it FIRST when anything else refuses. |
 | `events` | The append-only trail of what this plugin did. |
 | `dump` | The whole store in one document. |
@@ -39,11 +40,42 @@ not be: a dispatched worker pane can have the door and not the binary.
 | `parked_resolve` | Let one of those through, or reject it. |
 | `stop` | End the one daemon serving every project of this user. |
 
-On the CLI the same six are `hsched doctor`, `hsched events`, `hsched dump`,
-`hsched parked list`, `hsched parked resolve <id>` and `hsched stop`. The CLI
+On the CLI they are `hsched job add <id> <schedule> <action>`, `hsched job
+list`, `hsched job remove <id>`, `hsched job enable|disable <id>`, `hsched
+doctor`, `hsched events`, `hsched dump`, `hsched parked list`, `hsched parked
+resolve <id>` and `hsched stop`. The CLI
 adds `hsched events --follow`, which keeps the connection and prints each
 event as it is written; a tool call answers once, because a stream is not a
 tool call.
+
+## Writing a schedule
+
+`job_add` takes an id, a five-field cron expression and an action kind, with
+the action's own arguments as an object:
+
+```json
+{"id": "nightly-sweep", "schedule": "0 3 * * *", "action": "task",
+ "args": {"title": "sweep the board"}}
+```
+
+Three things to tell the operator rather than discover for them:
+
+- **The expression is read in UTC**, always. "3am" is 3am UTC, not 3am where
+  they are. Convert before you write the row, and say which you wrote.
+- **A schedule missed while the daemon was down is skipped**, which is cron's
+  own semantics. `catch_up: true` fires it once at the next start instead —
+  once, for the latest missed instant, never once per miss. Ask which they
+  want when it matters; the default is skip.
+- **The id is the principal.** Every call the job makes declares itself as
+  `cron:<id>`, so `nightly-sweep` is what shows up as the actor on the htask
+  board. Name it for what it does.
+
+Everything that could not fire is refused when you write the row: an
+expression that does not parse, an action nothing can run, an argument its
+kind never takes. A `USAGE` here is worth reading in full — it names the field.
+
+`hsched doctor` reports which jobs were skipped at the last start, which is
+the first thing to check when a schedule "did not run".
 
 ## You never say who you are
 
