@@ -45,16 +45,15 @@ func TestEveryCLIGlobalIsAccountedForOnTheMCPDoor(t *testing.T) {
 	}
 	root.PersistentFlags().VisitAll(note)
 
-	byName := map[string]verbs.Verb{}
-	for _, v := range verbs.All {
-		byName[v.CLI[len(v.CLI)-1]] = v
-	}
-	var walk func(*cobra.Command)
-	walk = func(c *cobra.Command) {
+	// A verb is found by its WHOLE subcommand path, not by its last segment:
+	// `job add` and `trigger add` end in the same word, and matching on that
+	// word alone reads one verb's flags against the other's argument list.
+	var walk func(*cobra.Command, []string)
+	walk = func(c *cobra.Command, path []string) {
 		for _, sub := range c.Commands() {
-			walk(sub)
+			walk(sub, append(append([]string{}, path...), sub.Name()))
 		}
-		v, ok := byName[c.Name()]
+		v, ok := verbs.ByCLI(path)
 		if !ok {
 			// A command that is not a verb — daemon, mcp, version,
 			// completion — carries flags that configure a PROCESS rather than
@@ -73,7 +72,7 @@ func TestEveryCLIGlobalIsAccountedForOnTheMCPDoor(t *testing.T) {
 			seen[f.Name] = true
 		})
 	}
-	walk(root)
+	walk(root, nil)
 
 	if len(seen) < 5 {
 		t.Fatalf("only %d flags found; the walk is not reaching the command tree", len(seen))

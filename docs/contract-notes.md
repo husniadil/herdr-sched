@@ -8,7 +8,8 @@ reason. A divergence that is written down is a decision; one that is not is a
 bug nobody has found yet.
 
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
-that day. Amended 2026-08-25 with the cron half.
+that day. Amended 2026-08-25 with the cron half, and again the same day with
+the trigger half.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -30,9 +31,31 @@ table.
 
 What the document does carry from day one is the shape the siblings retrofitted
 late: **every entity has its own trail beside it**, `<entity>_events`, saved in
-the same write. Today that is `parked`/`parked_events` and `jobs`/`job_events`,
-with `run_events` as the trail that has no rows beside it. A trigger arrives
-the same way, and it does not have to be split out of a shared trail later.
+the same write. Today that is `parked`/`parked_events`, `jobs`/`job_events` and
+`triggers`/`trigger_events`, with `run_events` as the trail that has no rows
+beside it.
+
+## §5.1 again — the webhook secrets are a second file
+
+One thing is deliberately outside the document: a webhook's HMAC secret. It
+lives in `<state dir>/sched.secrets.json`, mode `0600`, written whole through
+the same temp-file-and-rename the document is.
+
+Note 2 settles that a webhook's secret is shown once at creation and never
+listed again. Verifying an HMAC needs the key itself, so it cannot be hashed
+away, which leaves **where it is kept** as the only thing that can carry the
+rule. `dump` renders the store document; a redaction inside `dump` would be one
+line anybody could later forget, and a file `dump` does not read cannot be
+forgotten. Every door renders the document and nothing else, so no door can
+print a secret. `TestNoSecretReachesListGetDumpOrTheTrail` drives every read a
+caller has, and the store file on disk besides.
+
+The cost is that writing a webhook is two writes rather than one, which is
+exactly the property the "written whole" rule exists to give. The secret is
+written **first**, so a crash between them leaves a key with no trigger — inert,
+and counted by `doctor` as an orphan — rather than a webhook nobody holds a key
+for. A duplicate id is refused before a key is drawn, so a refused write can
+never replace a live trigger's secret.
 
 ## §13 parity — `status` and `sweep` are not here yet
 
@@ -41,17 +64,23 @@ parked.list · parked.resolve`, with `sweep` wherever the daemon has a
 reconciliation pass to run on demand. This build carries five of the seven and
 neither of the other two.
 
-`status` answers what a plugin is DOING. Half a plugin — jobs and no triggers —
-would answer it in a shape that has to change the moment the other half lands,
-and a caller that bound to the first shape has been taught something it will
-have to unlearn. `hsched doctor` carries the job counts and the skipped-at-start
-list in the meantime, which is the part an operator actually asks for.
+`status` answers what a plugin is DOING. The reason it was held back — half a
+plugin would answer it in a shape that has to change once the other half lands —
+no longer holds now that both halves are here, and what remains is a decision
+about what it should say rather than a missing piece. It is deliberately not
+being made inside the trigger work: the shape `status` takes is the shared one
+across four siblings, and settling it as a side effect of landing triggers is
+how one plugin's `status` comes to disagree with the other three. `hsched
+doctor` carries the job counts, the skipped-at-start list, the trigger counts by
+kind and the inbound door's address in the meantime, which is the part an
+operator actually asks for. **This is the open one.**
 
 `sweep` is a reconciliation pass on demand, and the standard is explicit that a
-plugin which owns no reconciliation does not grow one to match. A cron job needs
-none: the cursor on the row IS the reconciliation, and it is re-read from the
-store and acted on at every start. There is nothing to reconcile until a trigger
-can be bound to a pane that goes away.
+plugin which owns no reconciliation does not grow one to match. Neither half has
+one: the cursor on a job row and the stamp on a trigger row ARE the
+reconciliation, re-read from the store and acted on at every start. There is
+still nothing to reconcile until something can be bound to a pane that goes
+away.
 
 Both land with the work that gives them something to say. The registry test
 `TestTheCommonVerbsAreAllPresent` asserts their absence, so adding either is a

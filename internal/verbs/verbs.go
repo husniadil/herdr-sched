@@ -70,14 +70,15 @@ type Verb struct {
 
 // All is the registry. Order is the order the CLI lists them in.
 //
-// Beside the cron half's own five verbs are the seven §13 makes every sibling
-// spell the same way, minus `status` and `sweep`, which are held back rather
-// than stubbed. `status` answers what a plugin is DOING, and half a plugin —
-// jobs without triggers — would answer it in a shape that has to change once
-// the other half lands; `sweep` is a reconciliation pass, and a cron job needs
-// none: the cursor on the row IS the reconciliation, re-read from the store on
-// every start. A verb that exists and answers nothing teaches a caller a shape
-// it will have to unlearn.
+// Beside the five job verbs and the five trigger verbs are the seven §13 makes
+// every sibling spell the same way, minus `status` and `sweep`, which are held
+// back rather than stubbed. `sweep` is a reconciliation pass and neither half
+// has one to run: a cursor on a job row and a stamp on a trigger row ARE the
+// reconciliation, re-read from the store at every start. `status` waits on the
+// same thing it always waited on, which is a decision about what it should say
+// rather than a missing half; `doctor` carries the counts in the meantime.
+// docs/contract-notes.md holds both reasons. A verb that exists and answers
+// nothing teaches a caller a shape it will have to unlearn.
 var All = []Verb{
 	{
 		Name: "doctor", MCP: "doctor", CLI: []string{"doctor"},
@@ -180,6 +181,78 @@ var All = []Verb{
 		},
 		Mutates: true,
 		Gated:   "sched.job.disable",
+	},
+	{
+		Name: "trigger.add", MCP: "trigger_add", CLI: []string{"trigger", "add"},
+		Short: "Write down an inbound trigger and what it fires",
+		Long: "A trigger is a webhook on a server-issued URL, or a watcher on a host " +
+			"path, carrying one action from the vocabulary. A webhook answers with its " +
+			"URL and its HMAC secret, and the secret is shown HERE and nowhere else " +
+			"ever again: copy it now, because no list, get or dump will print it. Every " +
+			"request is verified against that secret over the raw body before anything " +
+			"parses a byte of it, and one that does not verify is dropped onto the trail " +
+			"and fires nothing. A watcher polls its path on the daemon's own tick and " +
+			"fires when the file changes; the first look records what is there and does " +
+			"not fire. Both carry a cooldown and a max-fires-per-hour, and both refuse " +
+			"loudly onto the trail rather than silently. Every call the trigger makes " +
+			"declares itself as `trigger:<id>` (§3.2).",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The name for this trigger; it is the id half of the `trigger:<id>` principal its calls declare, and the last segment of a webhook's URL", Required: true, Positional: true},
+			{Name: "kind", Type: String, Desc: "webhook for an inbound request, or watch for a file watcher", Required: true, Positional: true},
+			{Name: "action", Type: String, Desc: "What it fires: task, mail, dispatch or shell", Required: true, Positional: true},
+			{Name: "path", Type: String, Desc: "The host path a watch polls; a webhook takes none"},
+			{Name: "args", Type: Object, Desc: "The action's own arguments: a task takes title, an hmail takes to and body, a shell takes command"},
+			{Name: "cooldown", Type: Int, Desc: "Seconds after a firing in which the next one is refused; this is what a replayed webhook request meets"},
+			{Name: "max_per_hour", Type: Int, Desc: "How many firings this trigger allows in any hour; zero is no limit"},
+		},
+		Mutates: true,
+		Gated:   "sched.trigger.add",
+	},
+	{
+		Name: "trigger.list", MCP: "trigger_list", CLI: []string{"trigger", "list"},
+		Short: "List the inbound triggers and what each one is waiting for",
+		Long: "Every trigger in this project, with its kind, its action, its limits, how " +
+			"many times it has fired in the last hour and when it last did. A webhook " +
+			"shows the URL it is reached on and NEVER its secret, which was shown once " +
+			"at creation. Pass --all-projects to read every project's.",
+	},
+	{
+		Name: "trigger.remove", MCP: "trigger_remove", CLI: []string{"trigger", "remove"},
+		Short: "Take an inbound trigger off for good",
+		Long: "The row goes, and a webhook's secret goes with it: a key with no trigger " +
+			"left to use it is a secret kept for nothing. The trigger's trail stays, " +
+			"because what it DID is not undone by removing it. To stop a trigger " +
+			"without losing it, disable it instead.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The trigger to remove", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.trigger.remove",
+	},
+	{
+		Name: "trigger.enable", MCP: "trigger_enable", CLI: []string{"trigger", "enable"},
+		Short: "Let an inbound trigger fire again",
+		Long: "The webhook URL answers again and the watcher looks again. A watcher " +
+			"re-enabled does NOT fire for what changed while it was off: it records " +
+			"what is there now, the same way its first look did.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The trigger to enable", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.trigger.enable",
+	},
+	{
+		Name: "trigger.disable", MCP: "trigger_disable", CLI: []string{"trigger", "disable"},
+		Short: "Stop an inbound trigger from firing, without losing it",
+		Long: "The row stays, the watcher passes over it, and the webhook URL still " +
+			"verifies what arrives and then refuses it onto the trail. A signal held " +
+			"down by a disabled trigger is recorded rather than dropped: an operator " +
+			"who forgot they disabled it has somewhere to read that.",
+		Args: []Arg{
+			{Name: "id", Type: String, Desc: "The trigger to disable", Required: true, Positional: true},
+		},
+		Mutates: true,
+		Gated:   "sched.trigger.disable",
 	},
 	{
 		Name: "parked.list", MCP: "parked_list", CLI: []string{"parked", "list"},

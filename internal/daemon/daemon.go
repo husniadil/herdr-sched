@@ -25,6 +25,7 @@ import (
 	"github.com/husniadil/herdr-sched/internal/gate"
 	"github.com/husniadil/herdr-sched/internal/protocol"
 	"github.com/husniadil/herdr-sched/internal/store"
+	"github.com/husniadil/herdr-sched/internal/trigger"
 	"github.com/husniadil/herdr-sched/internal/verbs"
 	"github.com/husniadil/herdr-sched/internal/version"
 )
@@ -38,6 +39,14 @@ const SocketMode = 0o600
 type Daemon struct {
 	Store  *store.Store
 	Config *config.Config
+	// Secrets is every webhook's HMAC key. It is a file of its own beside the
+	// store, so no door that renders the store document can render a secret.
+	// A daemon without one serves every other verb and refuses to write a
+	// webhook it could never verify.
+	Secrets *store.Secrets
+	// WebhookAddr is where the inbound trigger door listens, empty or `off`
+	// for no inbound door at all.
+	WebhookAddr string
 	// Interval is how often the tick runs: how often the daemon asks which
 	// jobs are due. It is far shorter than any schedule, because a job is
 	// fired for the instant it was due at rather than for the tick that
@@ -75,6 +84,8 @@ type Daemon struct {
 	followers watchers
 	// skipped is what the last start passed over, for doctor (note 2).
 	skipped skips
+	// inbound is the webhook door as doctor reports it.
+	inbound inbound
 }
 
 // Lock takes the one-daemon lock, and holds it for as long as the returned
@@ -143,6 +154,15 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	// whose instant came round while this daemon was down is decided once,
 	// here, rather than by whichever tick happens first (note 2).
 	d.runDue(ctx, true)
+	// The inbound door, beside the socket both CLI doors dial. A door that
+	// cannot bind is said out loud and is never a reason not to start: every
+	// schedule and every file watcher works without it.
+	webhooks := d.listenWebhooks()
+	serving := make(chan struct{})
+	go func() {
+		defer close(serving)
+		d.serveWebhooks(ctx, webhooks)
+	}()
 	ticking := make(chan struct{})
 	go func() {
 		defer close(ticking)
@@ -169,6 +189,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 				default:
 				}
 				<-ticking
+				<-serving
 				d.Cleanup(ln)
 				return nil
 			}
@@ -217,6 +238,9 @@ func (d *Daemon) tick(ctx context.Context) {
 			return
 		case <-t.C:
 			d.runDue(ctx, false)
+			// The file watchers poll on the same tick: fsnotify would be a
+			// third dependency, and the daemon already has this rhythm.
+			d.runWatchers(ctx)
 		}
 	}
 }
@@ -309,6 +333,16 @@ func (d *Daemon) serve(ctx context.Context, v verbs.Verb, req protocol.Request) 
 		return encode(d.setJobEnabled(req, true))
 	case "job.disable":
 		return encode(d.setJobEnabled(req, false))
+	case "trigger.add":
+		return encode(d.addTrigger(req))
+	case "trigger.list":
+		return encode(d.listTriggers(req))
+	case "trigger.remove":
+		return encode(d.removeTrigger(req))
+	case "trigger.enable":
+		return encode(d.setTriggerEnabled(req, true))
+	case "trigger.disable":
+		return encode(d.setTriggerEnabled(req, false))
 	case "parked.list":
 		held := d.Store.Parked()
 		return encode(ParkedReport{Parked: held, Count: len(held)}, nil)
@@ -379,12 +413,13 @@ type DoctorReport struct {
 	// Orphans is every directory a second store could be sitting in because a
 	// build resolved it from Herdr's injected dirs. The store in use is never
 	// listed.
-	Orphans []string     `json:"orphan_store_dirs"`
-	Tick    string       `json:"tick"`
-	Jobs    JobsHealth   `json:"jobs"`
-	Config  ConfigHealth `json:"config"`
-	Gate    GateHealth   `json:"gate"`
-	Events  EventsHealth `json:"events"`
+	Orphans  []string       `json:"orphan_store_dirs"`
+	Tick     string         `json:"tick"`
+	Jobs     JobsHealth     `json:"jobs"`
+	Triggers TriggersHealth `json:"triggers"`
+	Config   ConfigHealth   `json:"config"`
+	Gate     GateHealth     `json:"gate"`
+	Events   EventsHealth   `json:"events"`
 }
 
 // ConfigHealth is where the config was read from and whether there was one.
@@ -422,6 +457,35 @@ type JobsHealth struct {
 	// when it stood in for more than one instant: it fired once, and the rest
 	// did not happen.
 	SkippedAtStart []SkipReport `json:"skipped_at_start"`
+}
+
+// TriggersHealth is the trigger half as doctor reports it, and the one place
+// the inbound door's address is answered: a webhook URL is issued against a
+// port, and an operator whose requests are refused needs to know which port
+// this daemon actually got.
+type TriggersHealth struct {
+	Count   int `json:"count"`
+	Enabled int `json:"enabled"`
+	// Webhooks and Watches split the count by kind, because the two fail in
+	// entirely different ways and an operator debugging one is not helped by
+	// the other's total.
+	Webhooks int `json:"webhooks"`
+	Watches  int `json:"watches"`
+	// Inbound is where the webhook door is listening, empty when none is.
+	Inbound string `json:"inbound,omitempty"`
+	// InboundError is why there is no inbound door, empty when one was asked
+	// for and got its port, and empty when none was asked for at all. §9.2's
+	// own problem in a different shape: a door that is off and a door that
+	// failed to bind are indistinguishable at the call site.
+	InboundError string `json:"inbound_error,omitempty"`
+	// SecretsPath is the file the webhook keys are kept in, which is NOT the
+	// store: no door that renders the store document can render a secret.
+	SecretsPath string `json:"secrets_path,omitempty"`
+	// OrphanSecrets is how many keys are held for a trigger that no longer
+	// exists. It is a count and never a list: naming them would put trigger
+	// ids in an answer for no reason, and the number is what says whether
+	// anything needs cleaning.
+	OrphanSecrets int `json:"orphan_secrets"`
 }
 
 // EventsHealth is the §8 trail as doctor reports it.
@@ -465,6 +529,10 @@ func (d *Daemon) doctor() DoctorReport {
 		rep.Config = ConfigHealth{Path: d.Config.Path, Present: d.Config.Present}
 		rep.Events.Hook = d.Config.OnEvent
 	}
+	rep.Triggers.Inbound, rep.Triggers.InboundError = d.inbound.read()
+	if d.Secrets != nil {
+		rep.Triggers.SecretsPath = d.Secrets.Path
+	}
 	rep.Jobs.SkippedAtStart = d.skipped.all()
 	if rep.Jobs.SkippedAtStart == nil {
 		rep.Jobs.SkippedAtStart = []SkipReport{}
@@ -474,6 +542,26 @@ func (d *Daemon) doctor() DoctorReport {
 			rep.Jobs.Count++
 			if j.Enabled {
 				rep.Jobs.Enabled++
+			}
+		}
+		held := map[string]bool{}
+		for _, t := range d.Store.Triggers() {
+			held[t.ID] = true
+			rep.Triggers.Count++
+			if t.Enabled {
+				rep.Triggers.Enabled++
+			}
+			if t.Kind == trigger.KindWebhook {
+				rep.Triggers.Webhooks++
+			} else {
+				rep.Triggers.Watches++
+			}
+		}
+		if d.Secrets != nil {
+			for _, id := range d.Secrets.IDs() {
+				if !held[id] {
+					rep.Triggers.OrphanSecrets++
+				}
 			}
 		}
 		rep.Store = d.Store.Path

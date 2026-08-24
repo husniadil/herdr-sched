@@ -6,10 +6,58 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-The cron half: jobs that fire on a schedule, and the vocabulary they fire.
-Nothing listens yet — the trigger half lands on the same action side.
+Both halves: jobs that fire on a schedule, triggers that fire on an inbound
+webhook request or on a watched file changing, and the one action vocabulary
+they share.
 
 ### Added
+
+- `internal/trigger`, the trigger entity and the pure decisions beside it:
+  `Allow` says whether the cooldown or the hourly limit holds a signal down,
+  `Changed` says whether a watched path differs from the last look, and
+  `Sign`/`Verify` are the HMAC over a raw body. No clock, no socket, no stat —
+  so a replay inside a cooldown, a fourth firing in an hour and every way a
+  signature can be wrong are pinned with no daemon, no port and no
+  `time.Sleep`.
+- `trigger add`, `trigger list`, `trigger remove`, `trigger enable` and
+  `trigger disable` on both doors, gated as `sched.trigger.add`,
+  `sched.trigger.remove`, `sched.trigger.enable` and `sched.trigger.disable`.
+  A trigger carries one action from the vocabulary, a `--cooldown` and a
+  `--max_per_hour`, and everything that could not fire is refused when the row
+  is **written**.
+- The inbound webhook door: one HTTP server on a **loopback** port
+  (`webhook_addr`, `127.0.0.1:8787` by default, `off` for none), answering
+  `POST /trigger/<id>`. The signature is verified over the **raw body before
+  anything parses a byte of it**, and a request that does not verify is
+  dropped onto the run trail naming the trigger and fires nothing. A door that
+  cannot bind never stops the daemon: `hsched doctor` names the address it got
+  and why it got none.
+- A webhook's HMAC secret is answered by `trigger add` and by nothing else,
+  ever. It is kept in `<state dir>/sched.secrets.json`, mode `0600`, which is
+  **not** the store document — so no door that renders the document can render
+  a secret, and a test drives `trigger list`, `dump`, `events`, `doctor` and
+  the store file itself to prove it.
+- The file watcher, polling on the daemon's own tick. It fires when a watched
+  path's mtime, size or existence differs from the last look; the first look
+  records and does not fire, and so does the first look after a re-enable.
+  Polling rather than `fsnotify` is the dependency budget: the daemon already
+  has this rhythm.
+- Both limits refuse **loudly**. A cooldown or an hourly limit that holds a
+  signal down lands on the run trail as `sched.run.limited` with the rule and
+  the words, and the caller is answered `429` with the same. The decision is
+  made under the store's lock and the cursor moves before the action fires, so
+  two requests in the same millisecond cannot both read a spent cooldown as
+  unspent.
+- `triggers` and `trigger_events` in the store, the entity and its own trail
+  written in the same save (§5.5).
+- `webhook_addr` in the config, with `SCHED_WEBHOOK_ADDR` beside it.
+
+### Fixed
+
+- The MCP-door parity walk in `cmd/hsched` matched a verb by the LAST segment
+  of its subcommand path, so `job add` and `trigger add` collided and one
+  verb's flags were read against the other's argument list. It matches on the
+  whole path now.
 
 - `internal/cron`, a five-field cron parser and the two answers everything
   else is built on: the next instant strictly after a time, and the last one

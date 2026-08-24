@@ -39,6 +39,11 @@ var pinnedTools = []string{
 	"parked_list",
 	"parked_resolve",
 	"stop",
+	"trigger_add",
+	"trigger_disable",
+	"trigger_enable",
+	"trigger_list",
+	"trigger_remove",
 }
 
 // inProcessDaemon is a real daemon over a throwaway store. No socket: both

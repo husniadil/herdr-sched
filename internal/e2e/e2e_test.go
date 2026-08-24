@@ -15,7 +15,13 @@
 package e2e
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +40,10 @@ type world struct {
 	root  string
 	repo  string
 	state string
-	env   []string
+	// webhook is the loopback address this world's inbound door gets, so the
+	// suite never takes the port an operator's own daemon is on.
+	webhook string
+	env     []string
 }
 
 func setup(t *testing.T) *world {
@@ -51,7 +60,7 @@ func setup(t *testing.T) *world {
 	if err != nil {
 		t.Fatalf("repo root: %v", err)
 	}
-	w := &world{t: t, root: root, repo: repo, state: filepath.Join(root, "state")}
+	w := &world{t: t, root: root, repo: repo, state: filepath.Join(root, "state"), webhook: freePort(t)}
 
 	// The binary the manifest's [[build]] step produces, at the path the
 	// scripts look for it. This drives what ships, not `go run`.
@@ -78,10 +87,32 @@ func setup(t *testing.T) *world {
 		"XDG_CONFIG_HOME="+filepath.Join(root, "xdg-config"),
 		"SCHED_STATE_DIR="+w.state,
 		"SCHED_CONFIG_DIR="+config,
+		// The inbound door gets a port of its OWN. The default is a fixed
+		// loopback port, and a suite that took it would be fighting the
+		// operator's own daemon for it — and, worse, could answer requests
+		// meant for theirs.
+		"SCHED_WEBHOOK_ADDR="+w.webhook,
 		// A pane, so a derived principal is not `unknown` in every call.
 		"HERDR_PANE_ID=wE:p1",
 	)
 	return w
+}
+
+// freePort is a loopback address nothing is listening on yet: it binds one,
+// reads what the kernel gave, and lets it go. The daemon takes it a moment
+// later. Nothing else in this suite opens a port, so the window is only a
+// race against the rest of the machine.
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("find a free port: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("release %s: %v", addr, err)
+	}
+	return addr
 }
 
 // missing skips loudly, naming what was not there — unless a release is being
@@ -449,4 +480,103 @@ func TestTheStoreIsWrittenWhereDumpSaysItIs(t *testing.T) {
 	if rep.Store.Parked == nil || rep.Store.ParkedEvents == nil {
 		t.Fatalf("dump rendered a null where a list belongs: %s", out)
 	}
+}
+
+// The trigger half through the shipped binary: a webhook is written, its
+// secret is answered ONCE, the door it names verifies a real request, and an
+// unsigned one is refused. This is the case the layer-2 tests cannot make —
+// the port comes from the daemon the binary autostarted, and the request is a
+// real HTTP call from outside the process.
+func TestAWebhookTriggerIsWrittenAndFiredThroughTheShippedBinary(t *testing.T) {
+	w := setup(t)
+	defer w.script("stop.sh")
+
+	out, errOut, status := w.run("trigger", "add", "deploy", "webhook", "shell",
+		"--args", `{"command":"true"}`, "--cooldown", "60", "--json")
+	if status != 0 {
+		t.Fatalf("trigger add exited %d: %s%s", status, out, errOut)
+	}
+	var added struct {
+		Trigger struct {
+			ID  string `json:"id"`
+			URL string `json:"url"`
+		} `json:"trigger"`
+		Secret  string `json:"secret"`
+		Changed bool   `json:"changed"`
+	}
+	if err := json.Unmarshal([]byte(out), &added); err != nil {
+		t.Fatalf("trigger add printed %q: %v", out, err)
+	}
+	if !added.Changed || added.Trigger.ID != "deploy" {
+		t.Fatalf("trigger add = %+v", added)
+	}
+	if added.Secret == "" {
+		t.Fatal("trigger add answered no secret, and there is no second chance to read one")
+	}
+	if added.Trigger.URL == "" {
+		t.Fatal("trigger add answered no URL, so nothing could ever call it")
+	}
+
+	// The secret was shown there and is shown nowhere else, ever.
+	for _, read := range [][]string{{"trigger", "list", "--json"}, {"dump", "--json"}, {"events", "--json"}} {
+		out, errOut, status := w.run(read...)
+		if status != 0 {
+			t.Fatalf("%v exited %d: %s%s", read, status, out, errOut)
+		}
+		if strings.Contains(out, added.Secret) {
+			t.Errorf("`hsched %s` printed the webhook secret", strings.Join(read, " "))
+		}
+	}
+
+	// A real request, signed the way the README tells an operator to sign one.
+	body := []byte(`{"ref":"refs/heads/main"}`)
+	mac := hmac.New(sha256.New, []byte(added.Secret))
+	mac.Write(body)
+	status, answer := w.post(added.Trigger.URL, "sha256="+hex.EncodeToString(mac.Sum(nil)), body)
+	if status != http.StatusAccepted {
+		t.Fatalf("a verified request answered %d: %s", status, answer)
+	}
+
+	// The same body again, inside the cooldown, is refused loudly.
+	status, answer = w.post(added.Trigger.URL, "sha256="+hex.EncodeToString(mac.Sum(nil)), body)
+	if status != http.StatusTooManyRequests {
+		t.Fatalf("a replay inside the cooldown answered %d: %s", status, answer)
+	}
+
+	// And an unsigned one never gets that far.
+	status, answer = w.post(added.Trigger.URL, "", body)
+	if status != http.StatusForbidden {
+		t.Fatalf("an unsigned request answered %d: %s", status, answer)
+	}
+
+	// Every one of the three is on the trail, in this plugin's own words.
+	out, errOut, status = w.run("events", "--json")
+	if status != 0 {
+		t.Fatalf("events exited %d: %s%s", status, out, errOut)
+	}
+	for _, name := range []string{"sched.run.fired", "sched.run.limited", "sched.run.dropped"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("the trail carries no %s", name)
+		}
+	}
+}
+
+// post sends one request to the door the daemon opened, with the signature
+// header when there is one.
+func (w *world) post(url, signature string, body []byte) (int, string) {
+	w.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		w.t.Fatalf("request: %v", err)
+	}
+	if signature != "" {
+		req.Header.Set("X-Sched-Signature", signature)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		w.t.Fatalf("post %s: %v", url, err)
+	}
+	defer res.Body.Close()
+	answer, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(answer)
 }

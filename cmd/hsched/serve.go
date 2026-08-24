@@ -56,6 +56,14 @@ func serve(f *daemonFlags) error {
 		return err
 	}
 
+	// The webhook keys, in a file of their own beside the store. They are read
+	// here, once, for the same reason the store is: the daemon is the only
+	// writer of both.
+	secrets, err := store.OpenSecrets(config.SecretsPath())
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -76,6 +84,12 @@ func serve(f *daemonFlags) error {
 		// else would otherwise see no effect and no reason.
 		log.Printf("no config file at %s: every default applies", cfg.Path)
 	}
+	if cfg.WebhookAddr == "" || cfg.WebhookAddr == daemon.WebhookOff {
+		// Said out loud rather than left to be inferred: a webhook trigger
+		// written against a daemon with no inbound door is a trigger nothing
+		// can ever reach.
+		log.Print("no webhook address configured: no inbound door, and only file watchers can fire")
+	}
 	if len(cfg.GateCommand) == 0 {
 		log.Print("no policy gate configured: every verb is allowed (§9.2)")
 	}
@@ -85,14 +99,16 @@ func serve(f *daemonFlags) error {
 
 	runner := &fire.Runner{Store: st}
 	d := &daemon.Daemon{
-		Store:    st,
-		Fire:     runner,
-		Config:   cfg,
-		Interval: interval,
-		Version:  version.Version,
-		Log:      log.Default(),
-		LogPath:  f.logPath,
-		Lock:     lock,
+		Store:       st,
+		Secrets:     secrets,
+		Fire:        runner,
+		Config:      cfg,
+		Interval:    interval,
+		WebhookAddr: cfg.WebhookAddr,
+		Version:     version.Version,
+		Log:         log.Default(),
+		LogPath:     f.logPath,
+		Lock:        lock,
 	}
 	// Every run reaches the followers and the §8.3 hook the same way every
 	// other event does.

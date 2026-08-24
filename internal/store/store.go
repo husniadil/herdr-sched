@@ -11,9 +11,13 @@
 // the two are saved together because the document is written whole: a change
 // and the event that records it can never land one without the other. Today
 // that is the actions the policy gate parked, the cron jobs that fire them,
-// and the runs a signal's actions fired; a trigger arrives the same way, with
-// its own sibling trail. A run has a trail and no list of rows beside it, because the run
+// the triggers that fire on an inbound signal, and the runs a signal's actions
+// fired. A run has a trail and no list of rows beside it, because the run
 // history IS the §8 stream and there is no second table (note 2).
+//
+// One thing is deliberately NOT here: a webhook's HMAC secret. It lives in its
+// own file beside the document, so every door that renders this document
+// renders no secret. Secrets holds the reasoning.
 package store
 
 import (
@@ -27,6 +31,7 @@ import (
 
 	"github.com/husniadil/herdr-sched/internal/codes"
 	"github.com/husniadil/herdr-sched/internal/job"
+	"github.com/husniadil/herdr-sched/internal/trigger"
 )
 
 // Version is the document's shape. A document from a version this binary does
@@ -50,6 +55,12 @@ type Document struct {
 	// own §8.1 trail beside it.
 	Jobs      []job.Job `json:"jobs"`
 	JobEvents []Event   `json:"job_events"`
+	// Triggers is every inbound signal (note 2), and TriggerEvents is that
+	// entity's own §8.1 trail beside it. A webhook's HMAC secret is NOT here:
+	// it is kept in a file of its own, so no door that renders this document
+	// can print one.
+	Triggers      []trigger.Trigger `json:"triggers"`
+	TriggerEvents []Event           `json:"trigger_events"`
 	// RunEvents is the run history: every time a signal's action fired, and
 	// how it went. It is a trail with no list beside it on purpose (note 2):
 	// the run history IS the §8 stream, and there is no second table holding
@@ -108,12 +119,14 @@ func (s *Store) Snapshot() Document {
 // write through the slice it was handed. The caller holds the lock.
 func (s *Store) copy() Document {
 	return Document{
-		Version:      Version,
-		Parked:       append([]Parked{}, s.doc.Parked...),
-		ParkedEvents: append([]Event{}, s.doc.ParkedEvents...),
-		Jobs:         append([]job.Job{}, s.doc.Jobs...),
-		JobEvents:    append([]Event{}, s.doc.JobEvents...),
-		RunEvents:    append([]Event{}, s.doc.RunEvents...),
+		Version:       Version,
+		Parked:        append([]Parked{}, s.doc.Parked...),
+		ParkedEvents:  append([]Event{}, s.doc.ParkedEvents...),
+		Jobs:          append([]job.Job{}, s.doc.Jobs...),
+		JobEvents:     append([]Event{}, s.doc.JobEvents...),
+		Triggers:      append([]trigger.Trigger{}, s.doc.Triggers...),
+		TriggerEvents: append([]Event{}, s.doc.TriggerEvents...),
+		RunEvents:     append([]Event{}, s.doc.RunEvents...),
 	}
 }
 
@@ -123,7 +136,7 @@ func (s *Store) copy() Document {
 func (s *Store) Trail() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return merge(s.doc.ParkedEvents, s.doc.JobEvents, s.doc.RunEvents)
+	return merge(s.doc.ParkedEvents, s.doc.JobEvents, s.doc.TriggerEvents, s.doc.RunEvents)
 }
 
 func merge(trails ...[]Event) []Event {
@@ -147,6 +160,7 @@ func (s *Store) update(fn func(*Document) error) error {
 	}
 	next.ParkedEvents = Rotate(next.ParkedEvents)
 	next.JobEvents = Rotate(next.JobEvents)
+	next.TriggerEvents = Rotate(next.TriggerEvents)
 	next.RunEvents = Rotate(next.RunEvents)
 	if err := s.write(next); err != nil {
 		return err

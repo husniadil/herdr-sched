@@ -86,6 +86,19 @@ func LogPath() string { return filepath.Join(StateDir(), Name+".log") }
 // across restarts (§5.1).
 func StorePath() string { return filepath.Join(StateDir(), Name+".json") }
 
+// SecretsPath is <state dir>/sched.secrets.json, the webhook HMAC keys. They
+// are kept OUT of the store document so that no door which renders the
+// document can render a secret (note 2: shown once at creation and never
+// listed again).
+func SecretsPath() string { return filepath.Join(StateDir(), Name+".secrets.json") }
+
+// DefaultWebhookAddr is where the inbound door listens. It is LOOPBACK and
+// only loopback: the trust boundary is the local user account (§3.5), and a
+// scheduler that fires shell commands is not a thing to put on a network
+// interface. Anything reaching it from elsewhere arrives through a tunnel the
+// operator set up deliberately.
+const DefaultWebhookAddr = "127.0.0.1:8787"
+
 // ConfigPath is <config dir>/sched.toml (§10.1). One config path per plugin,
 // and no other: a file under a different directory or a different extension is
 // a leftover, not an alternative.
@@ -160,6 +173,10 @@ type Config struct {
 	GateCommand []string `json:"gate_command"`
 	// OnEvent is the §8.3 hook, run detached with all three stdio closed.
 	OnEvent []string `json:"on_event"`
+	// WebhookAddr is where the inbound trigger door listens. `off` is no
+	// inbound door at all, which is what a fleet with only file watchers
+	// wants: a port nothing uses is a port worth not opening.
+	WebhookAddr string `json:"webhook_addr"`
 	// Path is where this came from, for doctor.
 	Path string `json:"path"`
 	// Present says whether the file existed at all.
@@ -169,7 +186,7 @@ type Config struct {
 // Keys is every key the config document accepts, in the order the README
 // lists them. A test reads one against the other, so a key added here without
 // a line in Configuration is a failing test rather than an undocumented knob.
-var Keys = []string{"tick_seconds", "gate_command", "on_event"}
+var Keys = []string{"tick_seconds", "gate_command", "on_event", "webhook_addr"}
 
 // Load reads the config file, applies defaults, then applies SCHED_ overrides.
 // A missing file is the unconfigured default; a malformed one is an error,
@@ -180,7 +197,7 @@ func Load() (*Config, error) { return LoadFrom(ConfigPath()) }
 // LoadFrom is Load against a named file, which is what `hsched daemon
 // --config` passes and what a test passes.
 func LoadFrom(path string) (*Config, error) {
-	c := &Config{TickSeconds: DefaultTickSeconds, Path: path}
+	c := &Config{TickSeconds: DefaultTickSeconds, WebhookAddr: DefaultWebhookAddr, Path: path}
 	raw, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
@@ -232,6 +249,14 @@ func (c *Config) apply(key string, v value) error {
 			return fmt.Errorf("on_event must be an array of strings, got %q", v.scalar)
 		}
 		c.OnEvent = v.list
+	case "webhook_addr":
+		// A TOML array leaves the scalar empty; an environment override
+		// carries the whole value in it. The difference is what tells a real
+		// list apart from a single word the env path always marks as one.
+		if v.isList && strings.TrimSpace(v.scalar) == "" {
+			return fmt.Errorf("webhook_addr is one address, got a list")
+		}
+		c.WebhookAddr = strings.TrimSpace(v.scalar)
 	default:
 		return fmt.Errorf("unknown key %q", key)
 	}

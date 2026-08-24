@@ -117,6 +117,8 @@ func groupShort(name string) string {
 		return "Work with the actions the policy gate deferred"
 	case "job":
 		return "Work with the schedules that fire on a cron expression"
+	case "trigger":
+		return "Work with the inbound webhooks and file watchers"
 	}
 	return name
 }

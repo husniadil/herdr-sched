@@ -8,14 +8,15 @@ contract already names for it: `cron:<job id>` or `trigger:<id>` (§3.1), so
 the actor is on every event trail the action touches. One binary, `hsched`, is
 the daemon and both doors.
 
-**The cron half is here; nothing listens yet.** A job fires on a schedule,
-and there is no trigger and no inbound URL. What is here beside the jobs is
-the skeleton every sibling shares — one verb registry both doors are generated
+**Both halves are here.** A job fires on a schedule; a trigger fires on an
+inbound webhook request or on a watched file changing. Beside them is the
+skeleton every sibling shares — one verb registry both doors are generated
 from, the four contract globals, the socket protocol, the daemon with its lock
 and its tick, the JSON store with an events trail per entity, the config
 document, the policy gate, and the test harness. The verbs are `job add`,
-`job list`, `job remove`, `job enable`, `job disable`, `doctor`, `dump`,
-`events`, `parked list`, `parked resolve` and `stop`.
+`job list`, `job remove`, `job enable`, `job disable`, `trigger add`,
+`trigger list`, `trigger remove`, `trigger enable`, `trigger disable`,
+`doctor`, `dump`, `events`, `parked list`, `parked resolve` and `stop`.
 
 ## Install
 
@@ -163,6 +164,91 @@ The decision is a pure function — `internal/job`.`Due` is handed the clock,
 the rows and the cursors, and answers what should happen — so every case above
 is pinned by a test with no `time.Sleep` and no process in it.
 
+## Triggers
+
+A trigger is an inbound signal carrying one action from the vocabulary below.
+There are two kinds:
+
+```sh
+hsched trigger add deploy webhook shell \
+  --args '{"command":"./bin/deploy"}' --cooldown 60 --max_per_hour 10
+hsched trigger add inbox watch task \
+  --path /var/spool/herdr/inbox --args '{"title":"something arrived"}'
+```
+
+Everything that could not fire is refused when the trigger is **written**, the
+same way a job is: an id that would not survive a URL or a `trigger:<id>`
+principal, a webhook that names a path, a watch that names none, an action
+nothing can run.
+
+### The webhook secret is shown once
+
+`trigger add` answers a webhook with its URL and its HMAC secret. That answer
+is the **one** time the secret exists anywhere a caller can read it. It is not
+in `trigger list`, not in `dump`, and not in the event trail — the key is kept
+in a file of its own, `<state dir>/sched.secrets.json`, which no door renders.
+Verifying an HMAC needs the key itself, so it cannot be hashed away; where it
+is kept is the only thing left that can carry the rule, and a file `dump` does
+not read cannot be forgotten the way a redaction inside `dump` could.
+
+Copy it when you see it. A secret that is lost is a trigger removed and
+written again.
+
+```sh
+body='{"ref":"refs/heads/main"}'
+sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
+curl -X POST http://127.0.0.1:8787/trigger/deploy \
+  -H "X-Sched-Signature: sha256=$sig" -d "$body"
+```
+
+The signature is verified over the **raw body, before anything parses a byte
+of it**. What the body says decides nothing: the trigger id is in the path and
+the proof is in the signature, so this door never unmarshals a payload a
+stranger sent. A request that does not verify is **dropped** — it fires
+nothing, and it lands on the run trail naming the trigger it was aimed at,
+because a URL being probed is something an operator wants to see, and a
+trigger that stopped working because a caller's secret drifted otherwise looks
+exactly like one nobody is calling.
+
+The door is **loopback only** (`127.0.0.1:8787` by default, `webhook_addr` in
+the config, `off` for no door at all). The trust boundary is the local user
+account (§3.5), and a scheduler that fires shell commands is not a thing to
+put on a network interface. Reaching it from elsewhere is a tunnel the
+operator sets up deliberately. `hsched doctor` prints the address the daemon
+actually got, and why it got none when a port was taken — a door that cannot
+bind never stops the daemon starting, because that would take every schedule
+down with one port.
+
+### The watcher polls
+
+A `watch` trigger stats its path on the daemon's own tick and fires when the
+mtime, the size or the file's existence differs from the last look. The
+**first** look records and does not fire: a trigger written against a file
+that already exists must not fire for a change that predates it. The same
+holds for a watcher re-enabled after a spell off.
+
+Polling rather than `fsnotify` is the dependency budget doing its job: the
+daemon already has this rhythm, and the cost is that a change is noticed
+within one tick rather than at once — the latency a cron job already accepts.
+
+### Both limits refuse loudly
+
+Every trigger carries a `--cooldown` in seconds and a `--max_per_hour`, and
+both are enforced in the pure core. A cooldown is what a **replayed** webhook
+request meets: the same signed body sent twice fires once and is refused the
+second time. The hourly limit counts firings inside the last hour and forgets
+what falls out of it.
+
+A refusal is never silent. It lands on the run trail as `sched.run.limited`
+with the rule that refused and how long is left, and the caller is answered
+`429` with the same words. A firing that vanished is indistinguishable from
+one that never arrived.
+
+Both decisions are made **under the store's lock**, and the cursor moves
+before the action fires. The webhook door is one HTTP server answering any
+number of connections, so two requests in the same millisecond would otherwise
+both read a spent cooldown as unspent.
+
 ## The action vocabulary
 
 An action is data on a job or a trigger row — a kind and its arguments — and
@@ -223,13 +309,17 @@ hook at all.
 ## The policy gate
 
 Every verb that changes the world passes one gate before doing anything
-(§9.1). This build gates five:
+(§9.1). This build gates nine:
 
 ```
 sched.job.add
 sched.job.remove
 sched.job.enable
 sched.job.disable
+sched.trigger.add
+sched.trigger.remove
+sched.trigger.enable
+sched.trigger.disable
 sched.stop
 ```
 
@@ -276,11 +366,16 @@ gate_command = ["/usr/local/bin/herdr-policy"]
 
 # The §8.3 hook, handed every event on stdin, run detached.
 on_event = ["/usr/local/bin/notify-me"]
+
+# Where the inbound webhook door listens. Loopback, and only loopback: the
+# trust boundary is the local user account. `off` is no inbound door at all,
+# which is what a fleet with only file watchers wants.
+webhook_addr = "127.0.0.1:8787"
 ```
 
 Every key takes an environment override, spelled `SCHED_<KEY>`:
-`SCHED_TICK_SECONDS`, `SCHED_GATE_COMMAND`, `SCHED_ON_EVENT`. An override beats
-the file.
+`SCHED_TICK_SECONDS`, `SCHED_GATE_COMMAND`, `SCHED_ON_EVENT`,
+`SCHED_WEBHOOK_ADDR`. An override beats the file.
 
 ### Where everything lives
 
@@ -294,6 +389,7 @@ The short name is `sched`, and everything nameable is derived from it:
 | Lock | `<state dir>/sched.lock` |
 | Log | `<state dir>/sched.log` |
 | Store | `<state dir>/sched.json` |
+| Webhook secrets | `<state dir>/sched.secrets.json`, mode `0600` |
 
 `SCHED_STATE_DIR` and `SCHED_CONFIG_DIR` override the two directories and take
 precedence over the XDG variables. They are how the tests isolate, and how an

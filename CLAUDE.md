@@ -13,10 +13,10 @@ by section number. Read it before changing any seam it names, and record a
 knowing divergence in `docs/contract-notes.md` rather than leaving it to be
 discovered.
 
-**This build is the cron half.** Jobs fire on a schedule; there is no trigger
-and no inbound door. Beside the jobs is the skeleton: one verb registry, both
-doors, the socket protocol, the daemon, the JSON store, the config, the policy
-gate, the test harness.
+**Both halves are here.** Jobs fire on a schedule; triggers fire on an inbound
+webhook request or on a watched file changing. Beside them is the skeleton: one
+verb registry, both doors, the socket protocol, the daemon, the JSON store, the
+config, the policy gate, the test harness.
 
 ## Commands
 
@@ -64,6 +64,19 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
   is the last SCHEDULED instant it was decided for, it moves before the action
   fires, and it moves whether the action fired, failed or was skipped. Cron
   arithmetic is UTC and only UTC.
+- **Nothing unverified is ever parsed.** The webhook door reads the raw body,
+  checks the HMAC over it, and only then does anything else happen. What the
+  body SAYS decides nothing: the trigger is named in the path and the proof is
+  in the signature. An unverified request is dropped onto the run trail naming
+  the trigger, and fires nothing.
+- **A webhook secret is shown once and lives outside the store.** `trigger add`
+  answers it; nothing else ever does. It is kept in its own file, so no door
+  that renders the store document can render a secret — the rule is carried by
+  where the key IS rather than by a redaction someone can forget.
+- **A limit refuses loudly.** A cooldown or an hourly limit that holds a signal
+  down lands on the run trail and answers the caller. A firing that vanished
+  is indistinguishable from one that never arrived. Both decisions are made
+  under the store's lock, and the cursor moves before the action fires.
 
 ## The store
 
@@ -71,12 +84,17 @@ A JSON document, not SQLite, and the reason is in the README and in
 `docs/contract-notes.md`. Two rules travel with it:
 
 - **Every entity has its own trail beside it**, `<entity>_events`, written in
-  the same save. Today that is `parked`/`parked_events` and `jobs`/`job_events`,
-  with `run_events` as the trail that has no rows beside it. A new entity
-  brings its own; nothing is split out of a shared trail later.
+  the same save. Today that is `parked`/`parked_events`, `jobs`/`job_events`
+  and `triggers`/`trigger_events`, with `run_events` as the trail that has no
+  rows beside it. A new entity brings its own; nothing is split out of a shared
+  trail later.
 - **The document is written whole**, through a temp file and a rename, so a
   change and the event recording it can never land one without the other, and
   a crash mid-write leaves the previous document intact.
+- **The webhook secrets are the one thing outside it**, in
+  `<state dir>/sched.secrets.json`, and `docs/contract-notes.md` records why.
+  An HMAC cannot be verified from a hash, so where the key is kept is the only
+  thing that can keep it off every door.
 
 ## The sibling repo standard
 

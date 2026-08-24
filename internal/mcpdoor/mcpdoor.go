@@ -38,12 +38,19 @@ const Instructions = "herdr-sched is the scheduler and trigger plugin for a Herd
 	"the contract already names for it — `cron:<job id>` or `trigger:<id>` (§3.1), so the actor " +
 	"is on every event trail it writes. Everything is scoped to a project, the git root of the " +
 	"directory you are working in, and your principal is derived from the pane you run in: you " +
-	"never declare who you are. This build is the cron half: `job_add` writes down a schedule — a " +
-	"five-field cron expression read in UTC, one action, and whether to fire once at the next " +
-	"start for a schedule the daemon was down for — and `job_list`, `job_remove`, `job_enable` " +
-	"and `job_disable` are the rest of it. A schedule missed while the daemon was down is " +
-	"SKIPPED by default, which is cron's own semantics; `doctor` names the jobs that were. " +
-	"There is no trigger verb yet. Beside the jobs are the verbs every sibling spells the same " +
+	"never declare who you are. There are two halves. The cron half: `job_add` writes down a " +
+	"schedule — a five-field cron expression read in UTC, one action, and whether to fire once " +
+	"at the next start for a schedule the daemon was down for — and `job_list`, `job_remove`, " +
+	"`job_enable` and `job_disable` are the rest of it. A schedule missed while the daemon was " +
+	"down is SKIPPED by default, which is cron's own semantics; `doctor` names the jobs that " +
+	"were. The trigger half: `trigger_add` writes down a webhook on a server-issued URL or a " +
+	"watcher on a host path, with `trigger_list`, `trigger_remove`, `trigger_enable` and " +
+	"`trigger_disable` beside it. A webhook's HMAC secret is answered by `trigger_add` and by " +
+	"NOTHING else, ever — no list, no get and no dump will print it, so copy it from that one " +
+	"answer or write the trigger again. Every inbound request is verified over the raw body " +
+	"before anything parses it, and one that does not verify is dropped onto the trail and " +
+	"fires nothing. Both kinds carry a cooldown and a max-fires-per-hour, and both refuse " +
+	"loudly onto the trail rather than silently. Beside the two halves are the verbs every sibling spells the same " +
 	"way: `doctor` says whether the plugin can work at all and is what to run first when " +
 	"something refuses, `events` reads the append-only trail of what it did, `dump` prints the " +
 	"whole store, `parked_list` and `parked_resolve` are the actions the §9 policy gate deferred " +
