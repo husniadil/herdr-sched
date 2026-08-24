@@ -41,7 +41,7 @@ func TestTheFourActionsFireAtTheirSiblings(t *testing.T) {
 			name: "task", bin: "htask",
 			answer: `{"task":{"id":"01AAA","seq":7,"title":"sweep"}}`,
 			act:    action.Action{Kind: action.KindTask, Args: map[string]string{"title": "sweep"}},
-			want:   "task create sweep --json --as cron:nightly",
+			want:   "create sweep --json --as cron:nightly",
 		},
 		{
 			name: "mail", bin: "hmail",

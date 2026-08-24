@@ -19,10 +19,10 @@ func TestEveryCallCarriesJSONAndThePrincipal(t *testing.T) {
 	f.Bin(t, "htask", `echo '{}'`)
 
 	c := &Client{Name: "htask", Principal: "cron:nightly"}
-	if _, err := c.Run(context.Background(), "task", "create", "sweep"); err != nil {
+	if _, err := c.Run(context.Background(), "create", "sweep"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if got, want := f.Calls(t)[0], "task create sweep --json --as cron:nightly"; got != want {
+	if got, want := f.Calls(t)[0], "create sweep --json --as cron:nightly"; got != want {
 		t.Fatalf("argv:\n got %q\nwant %q", got, want)
 	}
 }

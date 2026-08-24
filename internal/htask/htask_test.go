@@ -30,7 +30,7 @@ func TestCreateFilesTheTaskAsTheFiringSignal(t *testing.T) {
 	if task.ID != "01AAA" || task.Seq != 7 || task.Project != "/src/p" {
 		t.Fatalf("got %+v", task)
 	}
-	want := "task create sweep --description the nightly one --project /src/p --priority 3 --json --as cron:nightly"
+	want := "create sweep --description the nightly one --project /src/p --priority 3 --json --as cron:nightly"
 	if got := f.Calls(t)[0]; got != want {
 		t.Fatalf("argv:\n got %q\nwant %q", got, want)
 	}
@@ -47,7 +47,7 @@ func TestAnAbsentOptionIsNotOnTheArgv(t *testing.T) {
 	if _, err := c.Create(context.Background(), Draft{Title: "sweep"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if got, want := f.Calls(t)[0], "task create sweep --json --as cron:nightly"; got != want {
+	if got, want := f.Calls(t)[0], "create sweep --json --as cron:nightly"; got != want {
 		t.Fatalf("argv:\n got %q\nwant %q", got, want)
 	}
 }

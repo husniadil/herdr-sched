@@ -39,7 +39,7 @@ type Task struct {
 
 // Create files one task and answers with the row the board made.
 func (c *Client) Create(ctx context.Context, d Draft) (Task, error) {
-	args := []string{"task", "create", d.Title}
+	args := []string{"create", d.Title}
 	if d.Description != "" {
 		args = append(args, "--description", d.Description)
 	}
@@ -56,7 +56,7 @@ func (c *Client) Create(ctx context.Context, d Draft) (Task, error) {
 		return Task{}, err
 	}
 	if res.Task.ID == "" {
-		return Task{}, fmt.Errorf("htask task create %s: no task in the response", d.Title)
+		return Task{}, fmt.Errorf("htask create %s: no task in the response", d.Title)
 	}
 	return res.Task, nil
 }
