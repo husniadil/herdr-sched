@@ -78,3 +78,57 @@ func TestTheGateFakeAnswersADecision(t *testing.T) {
 		t.Fatalf("the gate answered %q", out)
 	}
 }
+
+// The stand-in board refuses the grouped spelling of a task verb. htask moved
+// those verbs to the top level of its CLI and kept the old forms only as
+// hidden transition aliases; a fake that answered them would let this
+// plugin's adapter outlive the aliases without anyone noticing.
+func TestTheFakeBoardRefusesTheGroupedTaskVerbs(t *testing.T) {
+	f := New(t)
+	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
+
+	out, err := exec.Command("htask", "task", "create", "sweep").Output()
+	if err == nil {
+		t.Fatalf("the grouped form was answered: %s", out)
+	}
+	if !strings.Contains(string(out), "USAGE") || !strings.Contains(string(out), "top level") {
+		t.Fatalf("the refusal does not say why: %s", out)
+	}
+}
+
+// The top-level spelling reaches the canned answer, and so does the note
+// group, which stays a group spelled with a space.
+func TestTheFakeBoardAnswersTheTopLevelAndNoteForms(t *testing.T) {
+	f := New(t)
+	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
+
+	for _, argv := range [][]string{{"create", "sweep"}, {"note", "add", "an idea"}} {
+		out, err := exec.Command("htask", argv...).Output()
+		if err != nil {
+			t.Fatalf("htask %v: %v", argv, err)
+		}
+		if !strings.Contains(string(out), "01AAA") {
+			t.Fatalf("htask %v did not reach the script: %s", argv, out)
+		}
+	}
+}
+
+// The refusal is keyed on the binary's name, not on which helper wrote it: a
+// case that reaches for Bin directly gets the same guarded board. Without
+// this, one unguarded fake anywhere is enough for the adapter to keep a
+// spelling htask no longer teaches, and nothing goes red.
+func TestAnyFakeNamedHTaskRefusesTheGroupedTaskVerbs(t *testing.T) {
+	f := New(t)
+	f.Bin(t, "htask", `echo '{"task":{"id":"01AAA"}}'`)
+
+	out, err := exec.Command("htask", "task", "create", "sweep").Output()
+	if err == nil {
+		t.Fatalf("the grouped form was answered: %s", out)
+	}
+	if !strings.Contains(string(out), "top level") {
+		t.Fatalf("the refusal does not say why: %s", out)
+	}
+	if out, err := exec.Command("htask", "create", "sweep").Output(); err != nil || !strings.Contains(string(out), "01AAA") {
+		t.Fatalf("the top-level form did not reach the script: %s %v", out, err)
+	}
+}

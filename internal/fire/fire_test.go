@@ -65,7 +65,11 @@ func TestTheFourActionsFireAtTheirSiblings(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r, f := runner(t)
-			f.Bin(t, c.bin, "echo '"+c.answer+"'")
+			if c.bin == "htask" {
+				f.HTask(t, "echo '"+c.answer+"'")
+			} else {
+				f.Bin(t, c.bin, "echo '"+c.answer+"'")
+			}
 			if err := r.Fire(context.Background(), nightly, c.act); err != nil {
 				t.Fatalf("fire: %v", err)
 			}
@@ -194,7 +198,7 @@ func TestAFailingCommandIsAFailedRunWithItsOutput(t *testing.T) {
 func TestAnInvalidActionFiresNothing(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, f := runner(t)
-	f.Bin(t, "htask", `echo '{"task":{"id":"01AAA"}}'`)
+	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
 	err := r.Fire(context.Background(), nightly, action.Action{Kind: action.KindTask})
 	if err == nil || !strings.Contains(err.Error(), "title") {
 		t.Fatalf("want a refusal naming title, got %v", err)
@@ -209,7 +213,7 @@ func TestAnInvalidActionFiresNothing(t *testing.T) {
 func TestAnUnattributableSourceFiresNothing(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, f := runner(t)
-	f.Bin(t, "htask", `echo '{"task":{"id":"01AAA"}}'`)
+	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
 	act := action.Action{Kind: action.KindTask, Args: map[string]string{"title": "sweep"}}
 	if err := r.Fire(context.Background(), action.Source{Kind: action.SourceCron}, act); err == nil {
 		t.Fatal("want a refusal")

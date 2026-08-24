@@ -16,7 +16,7 @@ import (
 func TestEveryCallCarriesJSONAndThePrincipal(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	f := testenv.New(t)
-	f.Bin(t, "htask", `echo '{}'`)
+	f.HTask(t, `echo '{}'`)
 
 	c := &Client{Name: "htask", Principal: "cron:nightly"}
 	if _, err := c.Run(context.Background(), "create", "sweep"); err != nil {
@@ -37,7 +37,7 @@ func TestThePaneIsNotHandedToASibling(t *testing.T) {
 	t.Setenv("HERDR_TAB_ID", "wT")
 	t.Setenv("HERDR_WORKSPACE_ID", "w1")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused":{"cwd":"/somewhere/else"}}`)
-	f.Bin(t, "htask", `echo "pane=[$HERDR_PANE_ID] tab=[$HERDR_TAB_ID] ws=[$HERDR_WORKSPACE_ID] ctx=[$HERDR_PLUGIN_CONTEXT_JSON]"; echo '{}' >/dev/null`)
+	f.HTask(t, `echo "pane=[$HERDR_PANE_ID] tab=[$HERDR_TAB_ID] ws=[$HERDR_WORKSPACE_ID] ctx=[$HERDR_PLUGIN_CONTEXT_JSON]"; echo '{}' >/dev/null`)
 
 	c := &Client{Name: "htask", Principal: "cron:nightly"}
 	out, err := c.Run(context.Background(), "doctor")

@@ -21,7 +21,7 @@ func client(t *testing.T) (*Client, *testenv.Fake) {
 func TestCreateFilesTheTaskAsTheFiringSignal(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	c, f := client(t)
-	f.Bin(t, "htask", `echo '{"task":{"id":"01AAA","seq":7,"project":"/src/p","title":"sweep","status":"todo"}}'`)
+	f.HTask(t, `echo '{"task":{"id":"01AAA","seq":7,"project":"/src/p","title":"sweep","status":"todo"}}'`)
 
 	task, err := c.Create(context.Background(), Draft{Title: "sweep", Description: "the nightly one", Project: "/src/p", Priority: 3})
 	if err != nil {
@@ -42,7 +42,7 @@ func TestCreateFilesTheTaskAsTheFiringSignal(t *testing.T) {
 func TestAnAbsentOptionIsNotOnTheArgv(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	c, f := client(t)
-	f.Bin(t, "htask", `echo '{"task":{"id":"01AAA","title":"sweep"}}'`)
+	f.HTask(t, `echo '{"task":{"id":"01AAA","title":"sweep"}}'`)
 
 	if _, err := c.Create(context.Background(), Draft{Title: "sweep"}); err != nil {
 		t.Fatalf("create: %v", err)
@@ -56,7 +56,7 @@ func TestAnAbsentOptionIsNotOnTheArgv(t *testing.T) {
 func TestTheBoardsRefusalIsCarriedInItsOwnWords(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	c, f := client(t)
-	f.Bin(t, "htask", `echo '{"error":{"code":"USAGE","message":"a task needs a title"}}'; exit 2`)
+	f.HTask(t, `echo '{"error":{"code":"USAGE","message":"a task needs a title"}}'; exit 2`)
 
 	_, err := c.Create(context.Background(), Draft{Title: "sweep"})
 	var refusal *sibling.Refusal
@@ -87,7 +87,7 @@ func TestAMissingBoardIsLoud(t *testing.T) {
 func TestAnAnswerWithNoTaskIsAFailure(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	c, f := client(t)
-	f.Bin(t, "htask", `echo '{}'`)
+	f.HTask(t, `echo '{}'`)
 	if _, err := c.Create(context.Background(), Draft{Title: "sweep"}); err == nil {
 		t.Fatal("want an error")
 	}

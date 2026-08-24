@@ -58,10 +58,36 @@ func (f *Fake) Bin(t *testing.T, name, script string) {
 	path := filepath.Join(f.Dir, name)
 	body := "#!/bin/sh\n" +
 		"printf '%s\\037' \"$@\" >> \"$" + FakeDirEnv + "/calls.log\"\n" +
-		"printf '\\n' >> \"$" + FakeDirEnv + "/calls.log\"\n" + script + "\n"
+		"printf '\\n' >> \"$" + FakeDirEnv + "/calls.log\"\n" + guards[name] + script + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write fake %s: %v", name, err)
 	}
+}
+
+// HTask writes the stand-in board. It is Bin under a name that says which
+// sibling is being faked; the refusal below travels with the name rather than
+// with this helper, so a case that reaches for Bin directly is guarded too.
+func (f *Fake) HTask(t *testing.T, script string) {
+	t.Helper()
+	f.Bin(t, "htask", script)
+}
+
+// guards are preludes a fake gets purely for being that sibling, whatever a
+// case then asks it to answer.
+//
+// htask's task verbs live at the top level of its CLI (htask create, htask
+// claim), and the old grouped forms survive only as hidden transition
+// aliases. The stand-in board refuses them in the shape htask itself refuses
+// an unknown command, so a call still spelling the grouped form goes red here
+// instead of being answered the canned document and outliving the aliases
+// unnoticed. The note group is untouched: it stays a group spelled with a
+// space, and reaches the case's own script.
+var guards = map[string]string{
+	"htask": `if [ "$1" = "task" ]; then
+  printf '%s\n' '{"error":{"code":"USAGE","message":"unknown command for htask: the task verbs are top level, htask create and htask claim, not htask task create"}}'
+  exit 2
+fi
+`,
 }
 
 // Argv returns the argument vector of every call to every fake binary, in
