@@ -77,7 +77,25 @@ func (d *Daemon) listenWebhooks() net.Listener {
 	}
 	d.inbound.set(ln.Addr().String(), "")
 	d.logf("webhook triggers are reachable at http://%s%s<id>", ln.Addr().String(), WebhookPrefix)
+	if !loopback(ln.Addr()) {
+		// The DEFAULT is loopback, and an operator who configured something
+		// else has said so deliberately — this is not refused. It is said
+		// loudly once, because the thing now reachable off this host fires
+		// shell commands, and a `webhook_addr` typo is otherwise silent.
+		d.logf("webhook_addr %s is NOT loopback: this door is reachable from off this host, and a trigger can fire a shell command",
+			ln.Addr().String())
+	}
 	return ln
+}
+
+// loopback reports whether an address is reachable only from this host.
+func loopback(addr net.Addr) bool {
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // serveWebhooks answers the inbound door until ctx ends.

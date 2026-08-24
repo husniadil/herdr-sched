@@ -73,6 +73,9 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
   answers it; nothing else ever does. It is kept in its own file, so no door
   that renders the store document can render a secret — the rule is carried by
   where the key IS rather than by a redaction someone can forget.
+- **A watch path is absolute.** A relative one is relative to the CALLER's
+  working directory, and the daemon that stats it is somewhere else: a watcher
+  on the wrong file looks exactly like a watcher on a file that never changes.
 - **A limit refuses loudly.** A cooldown or an hourly limit that holds a signal
   down lands on the run trail and answers the caller. A firing that vanished
   is indistinguishable from one that never arrived. Both decisions are made

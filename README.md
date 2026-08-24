@@ -210,16 +210,26 @@ because a URL being probed is something an operator wants to see, and a
 trigger that stopped working because a caller's secret drifted otherwise looks
 exactly like one nobody is calling.
 
-The door is **loopback only** (`127.0.0.1:8787` by default, `webhook_addr` in
-the config, `off` for no door at all). The trust boundary is the local user
+The door **defaults to loopback** (`127.0.0.1:8787`, `webhook_addr` in the
+config, `off` for no door at all). The trust boundary is the local user
 account (§3.5), and a scheduler that fires shell commands is not a thing to
-put on a network interface. Reaching it from elsewhere is a tunnel the
-operator sets up deliberately. `hsched doctor` prints the address the daemon
+put on a network interface, so reaching it from elsewhere is meant to be a
+tunnel the operator sets up deliberately.
+
+`webhook_addr` is **not** held to loopback: an operator who writes a routable
+address has said so on purpose, and refusing it would be this plugin deciding
+their network for them. It is not silent either — a door that binds something
+other than a loopback address says so in the log, once, naming what is now
+reachable off the host. `hsched doctor` prints the address the daemon
 actually got, and why it got none when a port was taken — a door that cannot
 bind never stops the daemon starting, because that would take every schedule
 down with one port.
 
 ### The watcher polls
+
+The path is **absolute**, and a relative one is refused when the row is
+written: it would be relative to the caller's working directory, and the
+daemon that stats it is somewhere else entirely.
 
 A `watch` trigger stats its path on the daemon's own tick and fires when the
 mtime, the size or the file's existence differs from the last look. The

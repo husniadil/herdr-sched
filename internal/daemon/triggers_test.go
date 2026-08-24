@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,6 +134,9 @@ func TestATriggerThatCouldNotFireIsRefusedAtAdd(t *testing.T) {
 		"an id that is a principal":          func(a map[string]any) { a["id"] = "trigger:deploy" },
 		"an id that would not survive a URL": func(a map[string]any) { a["id"] = "a/b" },
 		"a negative cooldown":                func(a map[string]any) { a["cooldown"] = -1 },
+		"a watch on a relative path": func(a map[string]any) {
+			a["kind"], a["path"] = trigger.KindWatch, "inbox"
+		},
 	}
 	for what, break_ := range cases {
 		d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
@@ -760,4 +764,146 @@ func TestTheInboundDoorCarriesItsTimeouts(t *testing.T) {
 		t.Error("the idle timeout is shorter than the read timeout")
 	}
 	_ = time.Second
+}
+
+// The claim the whole webhook door rests on: the decision is made against the
+// row as it is NOW, under the store's lock, and the cursor moves there before
+// anything fires.
+//
+// A sequential replay does not prove it. Each request re-reads the row at the
+// top of the handler, so by the time the second one arrives the first firing is
+// already visible to it, and a decision made against that stale-but-current
+// read looks identical to one made under the lock. Nor does a burst of real
+// HTTP requests: connection setup serialises them well enough that each one
+// reads after the last one wrote, so it passes either way and proves nothing.
+//
+// What tells the two apart is callers that ALL hold a row read before any of
+// them fired, which is exactly the state two same-millisecond requests are in.
+// Every one of them is handed that row, and exactly one may get through.
+func TestCallersHoldingOneStaleRowCannotAllSpendTheSameCooldown(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, f := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	f.HTask(t, `printf '%s\n' '{"task":{"id":"01J","seq":7}}'`)
+	args := deployArgs()
+	args["cooldown"] = 3600
+	if _, err := call(t, d, "trigger.add", args); err != nil {
+		t.Fatalf("trigger.add: %v", err)
+	}
+	// One read, before anything fires, shared by every caller.
+	stale, ok := d.Store.Trigger("deploy")
+	if !ok {
+		t.Fatal("the trigger was not written")
+	}
+
+	const callers = 16
+	fired := concurrentFires(t, d, stale, callers)
+	if fired != 1 {
+		t.Fatalf("%d of %d callers holding one unspent cooldown were allowed through", fired, callers)
+	}
+	d.Fire.Wait()
+	if got := runKinds(t, d, "deploy"); got[store.KindFired] != 1 || got[store.KindLimited] != callers-1 {
+		t.Errorf("the runs read %v", got)
+	}
+	if got := len(f.Calls(t)); got != 1 {
+		t.Errorf("the action was performed %d times", got)
+	}
+}
+
+// The same, for the hourly limit: callers holding one stale row must not spend
+// more than it allows between them.
+func TestCallersHoldingOneStaleRowSpendNoMoreThanTheHourlyLimit(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, f := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	f.HTask(t, `printf '%s\n' '{"task":{"id":"01J","seq":7}}'`)
+	args := deployArgs()
+	args["max_per_hour"] = 3
+	if _, err := call(t, d, "trigger.add", args); err != nil {
+		t.Fatalf("trigger.add: %v", err)
+	}
+	stale, ok := d.Store.Trigger("deploy")
+	if !ok {
+		t.Fatal("the trigger was not written")
+	}
+
+	const callers = 16
+	fired := concurrentFires(t, d, stale, callers)
+	if fired != 3 {
+		t.Fatalf("%d of %d callers were allowed through against max_per_hour 3", fired, callers)
+	}
+	d.Fire.Wait()
+	if got := len(f.Calls(t)); got != 3 {
+		t.Errorf("the action was performed %d times, not 3", got)
+	}
+}
+
+// concurrentFires hands the same pre-read row to n callers at once and answers
+// with how many the row let through.
+func concurrentFires(t *testing.T, d *Daemon, stale trigger.Trigger, n int) int {
+	t.Helper()
+	ctx := context.Background()
+	var start, done sync.WaitGroup
+	start.Add(1)
+	verdicts := make([]trigger.Verdict, n)
+	for i := 0; i < n; i++ {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			start.Wait()
+			verdicts[i] = d.fireTrigger(ctx, stale, map[string]any{"trigger_kind": trigger.KindWebhook})
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+	fired := 0
+	for _, v := range verdicts {
+		if v.Fire {
+			fired++
+		}
+	}
+	return fired
+}
+
+// A burst through the real door, as a smoke check that the handler reaches the
+// same decision path. It does not prove the lock discipline above.
+func TestABurstThroughTheDoorSpendsOneCooldownOnce(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, f := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	f.HTask(t, `printf '%s\n' '{"task":{"id":"01J","seq":7}}'`)
+	args := deployArgs()
+	args["cooldown"] = 3600
+	raw, err := call(t, d, "trigger.add", args)
+	if err != nil {
+		t.Fatalf("trigger.add: %v", err)
+	}
+	secret := decode[TriggerChange](t, raw).Secret
+	base := serveInbound(t, d)
+
+	const callers = 12
+	var start, done sync.WaitGroup
+	start.Add(1)
+	statuses := make([]int, callers)
+	for i := 0; i < callers; i++ {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			start.Wait()
+			statuses[i], _ = post(t, base+"deploy", secret, []byte(`{}`))
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+	d.Fire.Wait()
+
+	accepted := 0
+	for _, status := range statuses {
+		if status == http.StatusAccepted {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("%d of %d requests were accepted against one unspent cooldown", accepted, callers)
+	}
+	if got := len(f.Calls(t)); got != 1 {
+		t.Errorf("the action was performed %d times", got)
+	}
 }

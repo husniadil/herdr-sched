@@ -11,6 +11,7 @@ package trigger
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -107,6 +108,17 @@ func (t Trigger) Validate() error {
 	case KindWatch:
 		if strings.TrimSpace(t.Path) == "" {
 			return codes.Errorf(codes.Usage, "a watch trigger has no path, and there is nothing to watch")
+		}
+		// A relative path is relative to the CALLER's working directory, and
+		// the daemon that stats it is somewhere else entirely — so a watcher
+		// written as `inbox` would silently watch a different file from the
+		// one the operator meant, or none at all, and look exactly like a
+		// watcher on a file that never changes. §4.1 resolves a project in the
+		// door for the same reason; a path has no such resolution, so it is
+		// refused instead.
+		if !filepath.IsAbs(t.Path) {
+			return codes.Errorf(codes.Usage,
+				"a watch path is absolute, and %q is not: the daemon that stats it does not share your working directory", t.Path)
 		}
 	default:
 		return codes.Errorf(codes.Usage,

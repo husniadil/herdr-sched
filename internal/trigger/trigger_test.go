@@ -58,6 +58,25 @@ func TestAWebhookWatchesNoPathAndAWatchHasOne(t *testing.T) {
 	}
 }
 
+// A relative path would be stat'd against the DAEMON's working directory,
+// which is not the caller's. A watcher on the wrong file looks exactly like a
+// watcher on a file that never changes.
+func TestAWatchPathIsAbsolute(t *testing.T) {
+	watch := webhook()
+	watch.Kind = KindWatch
+	for _, path := range []string{"inbox", "./inbox", "../inbox", "a/b"} {
+		watch.Path = path
+		err := watch.Validate()
+		if err == nil {
+			t.Errorf("the relative watch path %q was accepted", path)
+			continue
+		}
+		if !strings.Contains(codes.Message(err), "absolute") {
+			t.Errorf("the refusal of %q does not say why: %v", path, err)
+		}
+	}
+}
+
 func TestATriggerKindOutsideTheTwoIsRefused(t *testing.T) {
 	w := webhook()
 	w.Kind = "poll"
