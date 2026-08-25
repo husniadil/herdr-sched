@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-25
+
 Both halves: jobs that fire on a schedule, triggers that fire on an inbound
 webhook request or on a watched file changing, and the one action vocabulary
 they share.
