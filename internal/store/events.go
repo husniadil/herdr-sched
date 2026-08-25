@@ -70,12 +70,18 @@ const MaxEvents = 1000
 
 // NewEvent builds one event with its §8.1 name spelled out from its parts, so
 // the name and the fields can never disagree.
-func NewEvent(now time.Time, entity, kind, entityID, actor string, detail map[string]any) Event {
+//
+// The project is a parameter rather than a field a caller may remember to set:
+// §8.1 gives every event one, and the scope a call was made in is known at
+// every one of these call sites. A verb's event carries the scope the caller
+// named; a run's carries the scope the row that fired it was written in.
+func NewEvent(now time.Time, entity, kind, entityID, actor, project string, detail map[string]any) Event {
 	return Event{
 		ID:       NewEventID(now),
 		Name:     "sched." + entity + "." + kind,
 		Entity:   entity,
 		EntityID: entityID,
+		Project:  project,
 		AtMS:     now.UnixMilli(),
 		Actor:    actor,
 		Kind:     kind,

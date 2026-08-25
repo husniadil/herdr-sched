@@ -35,6 +35,12 @@ type Client struct {
 	// Started is the daemon this client had to bring up, if it brought one
 	// up. Nothing here stops it again: it outlives the door on purpose.
 	Started *os.Process
+
+	// exited carries the exit of a daemon this client started. A daemon that
+	// refuses to run — a store document from a version it will not read, a
+	// state dir it cannot open — dies in its own words, and those words are
+	// the whole answer to why nothing is listening.
+	exited chan error
 }
 
 // Call sends one request and returns the daemon's result.
@@ -118,13 +124,23 @@ func (c *Client) dialOrStart() (net.Conn, error) {
 		if time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(wait)
+		select {
+		case err := <-c.exited:
+			// It died rather than served. Waiting out the rest of the timeout
+			// to answer "none answered" would hide the one thing the operator
+			// needs, which is what the daemon said on its way out.
+			return nil, codes.Errorf(codes.Unavailable,
+				"the daemon this call started exited before it answered on %s: %s; it writes why to %s",
+				path, exitReason(err), config.LogPath())
+		case <-time.After(wait):
+		}
 		if conn, err := net.Dial("unix", path); err == nil {
 			return conn, nil
 		}
 	}
 	return nil, codes.Errorf(codes.Unavailable,
-		"started a daemon and none answered on %s within %s", path, c.timeout())
+		"started a daemon and none answered on %s within %s; it writes why to %s",
+		path, c.timeout(), config.LogPath())
 }
 
 // start brings a daemon up, detached: it outlives the door that started it,
@@ -159,10 +175,22 @@ func (c *Client) start() error {
 		return codes.Errorf(codes.Unavailable, "start a daemon from %s: %v", bin, err)
 	}
 	c.Started = cmd.Process
-	// Nothing waits for it, so let the kernel reap it rather than leaving a
-	// zombie behind this door.
-	go cmd.Wait()
+	// The kernel reaps it here rather than leaving a zombie behind this door,
+	// and the exit is KEPT: a daemon that refuses to run is the answer to why
+	// nothing is listening, and discarding it leaves every such refusal
+	// wearing the same generic timeout.
+	c.exited = make(chan error, 1)
+	go func() { c.exited <- cmd.Wait() }()
 	return nil
+}
+
+// exitReason is how a daemon went, in words. A daemon that exited cleanly and
+// served nothing is still a failure — it is just one with no status to name.
+func exitReason(err error) string {
+	if err == nil {
+		return "it exited 0 without ever serving"
+	}
+	return err.Error()
 }
 
 func (c *Client) timeout() time.Duration {

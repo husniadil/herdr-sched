@@ -136,6 +136,8 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 			len(rep.Document.Parked), len(rep.Document.ParkedEvents))
 		fmt.Fprintf(out, "  jobs          %d rows, %d events\n",
 			len(rep.Document.Jobs), len(rep.Document.JobEvents))
+		fmt.Fprintf(out, "  triggers      %d rows, %d events\n",
+			len(rep.Document.Triggers), len(rep.Document.TriggerEvents))
 		// A run has no rows of its own: the trail IS the run history.
 		fmt.Fprintf(out, "  runs          %d events\n", len(rep.Document.RunEvents))
 	case "events":
@@ -178,6 +180,36 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 		}
 		fmt.Fprintf(out, "%s %s\n", change.Job.ID, change.State)
 		writeJob(out, change.Job)
+	case "trigger.list":
+		var rep daemon.TriggersReport
+		if err := json.Unmarshal(result, &rep); err != nil {
+			return err
+		}
+		if rep.Count == 0 {
+			fmt.Fprintln(out, "no triggers here yet (hsched trigger add <id> <kind> <action>)")
+			return nil
+		}
+		for _, row := range rep.Triggers {
+			writeTrigger(out, row)
+		}
+	case "trigger.add", "trigger.remove", "trigger.enable", "trigger.disable":
+		var change daemon.TriggerChange
+		if err := json.Unmarshal(result, &change); err != nil {
+			return err
+		}
+		if !change.Changed {
+			fmt.Fprintf(out, "%s was already %s\n", change.Trigger.ID, change.State)
+			return nil
+		}
+		fmt.Fprintf(out, "%s %s\n", change.Trigger.ID, change.State)
+		writeTrigger(out, change.Trigger)
+		if change.Secret != "" {
+			// The one place a key is ever printed (note 2). An operator who
+			// does not copy it here cannot get it back, so the line says that
+			// rather than leaving them to find out at the first request.
+			fmt.Fprintf(out, "  %-20s secret %s\n", "", change.Secret)
+			fmt.Fprintf(out, "  %-20s copy it now: it is shown HERE and nowhere else, ever again\n", "")
+		}
 	case "parked.list":
 		var rep daemon.ParkedReport
 		if err := json.Unmarshal(result, &rep); err != nil {
@@ -230,6 +262,41 @@ func writeJob(out io.Writer, row daemon.JobRow) {
 		// held and it never fires, and the operator has to see which.
 		fmt.Fprintf(out, "  %-20s and it cannot be scheduled: %s\n", "", row.Unreadable)
 	}
+}
+
+// writeTrigger is one trigger as an operator reads it: what it waits for, what
+// it fires, what holds it down, and when it last fired.
+func writeTrigger(out io.Writer, row daemon.TriggerRow) {
+	state := "enabled"
+	if !row.Enabled {
+		state = "disabled"
+	}
+	fmt.Fprintf(out, "  %-20s %-8s %-9s %-8s last %s\n",
+		row.ID, row.Kind, row.Action.Kind, state, orNever(row.LastFiredMS))
+	if row.Path != "" {
+		fmt.Fprintf(out, "  %-20s watching %s\n", "", row.Path)
+	}
+	if row.URL != "" {
+		fmt.Fprintf(out, "  %-20s reached at %s\n", "", row.URL)
+	}
+	fmt.Fprintf(out, "  %-20s %s, %d fired this hour\n", "", limitsLine(row), row.FiredThisHour)
+}
+
+// limitsLine is the two limits in the words the refusal uses, so a run on the
+// trail reading `limit=cooldown` and this line name the same rule. A trigger
+// with neither says so rather than printing two zeroes.
+func limitsLine(row daemon.TriggerRow) string {
+	parts := []string{}
+	if row.CooldownSeconds > 0 {
+		parts = append(parts, fmt.Sprintf("cooldown %ds", row.CooldownSeconds))
+	}
+	if row.MaxPerHour > 0 {
+		parts = append(parts, fmt.Sprintf("max %d/hour", row.MaxPerHour))
+	}
+	if len(parts) == 0 {
+		return "no cooldown and no hourly limit"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // orNever renders a cursor that has never moved as the words for it, because

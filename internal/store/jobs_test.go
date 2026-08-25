@@ -26,7 +26,7 @@ func nightly(id string) job.Job {
 }
 
 func jobEvent(ms int64, kind, id string) Event {
-	return NewEvent(at(ms), EntityJob, kind, id, "agent:wA:p1", nil)
+	return NewEvent(at(ms), EntityJob, kind, id, "agent:wA:p1", "", nil)
 }
 
 // §5.5 and the store's own rule: a job and the event recording it land in one

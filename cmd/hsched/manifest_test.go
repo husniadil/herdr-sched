@@ -84,6 +84,18 @@ func TestTheREADMECarriesTheGatedVerbs(t *testing.T) {
 	}
 }
 
+// The README's MCP section is the list an operator wires a client against, and
+// a tool the door serves and the README does not name is a verb nobody knows
+// is there.
+func TestTheREADMENamesEveryMCPTool(t *testing.T) {
+	readme := repoFile(t, "README.md")
+	for _, v := range verbs.MCPTools() {
+		if !strings.Contains(readme, "`"+v.MCP+"`") {
+			t.Errorf("the README does not name the MCP tool %q", v.MCP)
+		}
+	}
+}
+
 // §10.1 fixes one config path per plugin. The README's Configuration section
 // is keyed exactly as the TOML document spells it, so a key the code reads and
 // the README does not name is a knob nobody can find.

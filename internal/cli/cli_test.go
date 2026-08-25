@@ -264,12 +264,80 @@ func TestJSONOutputIsTheDaemonsOwnBytes(t *testing.T) {
 	}
 }
 
+// The trigger half is read on the CLI the same way the cron half is: a line
+// an operator reads, not the daemon's document. A verb with no rendering falls
+// through to raw JSON, which is the machine's answer handed to a person.
+func TestTheTriggerVerbsRenderForAPerson(t *testing.T) {
+	row := `{"id":"deploy","kind":"webhook","action":{"kind":"task","args":{"title":"deploy asked for"}},` +
+		`"cooldown_seconds":60,"max_per_hour":10,"enabled":true,"created_at":1,` +
+		`"url":"http://127.0.0.1:8797/trigger/deploy","fired_this_hour":2}`
+	states := map[string]string{
+		"trigger.add": "added", "trigger.remove": "removed",
+		"trigger.enable": "enabled", "trigger.disable": "disabled",
+	}
+	for verb, wants := range map[string][]string{
+		"trigger.list":    {"deploy", "webhook", "task", "http://127.0.0.1:8797/trigger/deploy"},
+		"trigger.add":     {"deploy", "added", "s3cret"},
+		"trigger.remove":  {"deploy", "removed"},
+		"trigger.enable":  {"deploy", "enabled"},
+		"trigger.disable": {"deploy", "disabled"},
+	} {
+		body := `{"triggers":[` + row + `],"count":1}`
+		if verb != "trigger.list" {
+			body = `{"trigger":` + row + `,"state":"` + states[verb] + `","changed":true`
+			if verb == "trigger.add" {
+				body += `,"secret":"s3cret"`
+			}
+			body += `}`
+		}
+		var out strings.Builder
+		if err := Write(verb, json.RawMessage(body), false, &out); err != nil {
+			t.Fatalf("%s: %v", verb, err)
+		}
+		if strings.Contains(out.String(), `"id"`) {
+			t.Errorf("%s printed the document rather than a line: %q", verb, out.String())
+		}
+		for _, want := range wants {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("%s printed %q, want it to carry %q", verb, out.String(), want)
+			}
+		}
+	}
+	// The secret is the one thing shown once, and only add ever has one.
+	var out strings.Builder
+	if err := Write("trigger.list", json.RawMessage(`{"triggers":[`+row+`],"count":1}`), false, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "secret") {
+		t.Errorf("the list printed something about a secret: %q", out.String())
+	}
+}
+
+// dump says what the document holds, and every entity in it is counted. An
+// entity the line leaves out is one an operator reading the summary believes
+// is not there.
+func TestTheDumpLineCountsEveryEntity(t *testing.T) {
+	var out strings.Builder
+	body := `{"version":2,"path":"/x/sched.json","store":{"version":2,"parked":[],"parked_events":[],` +
+		`"jobs":[],"job_events":[],"triggers":[{"id":"deploy"}],"trigger_events":[{"id":"ev-1"}],"run_events":[]}}`
+	if err := Write("dump", json.RawMessage(body), false, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "triggers") {
+		t.Errorf("dump does not count the triggers: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "1 rows, 1 events") {
+		t.Errorf("dump does not count the trigger rows and their trail: %q", out.String())
+	}
+}
+
 // An operator reading prose gets a sentence, and an empty answer says so
 // rather than printing nothing at all.
 func TestAnEmptyAnswerSaysSo(t *testing.T) {
 	for verb, want := range map[string]string{
-		"events":      "the trail holds nothing",
-		"parked.list": "has parked nothing",
+		"events":       "the trail holds nothing",
+		"parked.list":  "has parked nothing",
+		"trigger.list": "no triggers here yet",
 	} {
 		var out strings.Builder
 		if err := Write(verb, json.RawMessage(`{"count":0}`), false, &out); err != nil {

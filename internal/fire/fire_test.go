@@ -70,7 +70,7 @@ func TestTheFourActionsFireAtTheirSiblings(t *testing.T) {
 			} else {
 				f.Bin(t, c.bin, "echo '"+c.answer+"'")
 			}
-			if err := r.Fire(context.Background(), nightly, c.act); err != nil {
+			if err := r.Fire(context.Background(), nightly, c.act, ""); err != nil {
 				t.Fatalf("fire: %v", err)
 			}
 			r.Wait()
@@ -94,7 +94,7 @@ func TestAShellActionRunsAndItsOutputIsOnTheRun(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, _ := runner(t)
 	act := action.Action{Kind: action.KindShell, Args: map[string]string{"command": "echo swept"}}
-	if err := r.Fire(context.Background(), nightly, act); err != nil {
+	if err := r.Fire(context.Background(), nightly, act, ""); err != nil {
 		t.Fatalf("fire: %v", err)
 	}
 	r.Wait()
@@ -114,7 +114,7 @@ func TestAShellActionDoesNotBlockTheTick(t *testing.T) {
 	r, _ := runner(t)
 	act := action.Action{Kind: action.KindShell, Args: map[string]string{"command": "sleep 0.4; echo late"}}
 	start := time.Now()
-	if err := r.Fire(context.Background(), nightly, act); err != nil {
+	if err := r.Fire(context.Background(), nightly, act, ""); err != nil {
 		t.Fatalf("fire: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
@@ -136,7 +136,7 @@ func TestAnUnreachableSiblingIsAFailedRunAndNotASilentSkip(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, _ := runner(t) // testenv replaces PATH, so no fake means not installed
 	act := action.Action{Kind: action.KindTask, Args: map[string]string{"title": "sweep"}}
-	err := r.Fire(context.Background(), nightly, act)
+	err := r.Fire(context.Background(), nightly, act, "")
 	if err == nil {
 		t.Fatal("want the failure reported to the caller as well as to the trail")
 	}
@@ -158,7 +158,7 @@ func TestASiblingsRefusalIsOnTheFailedRunInItsOwnWords(t *testing.T) {
 	r, f := runner(t)
 	f.Bin(t, "hdis", `echo '{"error":{"code":"CONFLICT","message":"AT_CAPACITY: the fleet is full"}}'; exit 6`)
 	act := action.Action{Kind: action.KindDispatch, Args: map[string]string{"task": "01AAA"}}
-	if err := r.Fire(context.Background(), nightly, act); err == nil {
+	if err := r.Fire(context.Background(), nightly, act, ""); err == nil {
 		t.Fatal("want an error")
 	}
 	r.Wait()
@@ -179,7 +179,7 @@ func TestAFailingCommandIsAFailedRunWithItsOutput(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, _ := runner(t)
 	act := action.Action{Kind: action.KindShell, Args: map[string]string{"command": "echo nope >&2; exit 3"}}
-	if err := r.Fire(context.Background(), nightly, act); err != nil {
+	if err := r.Fire(context.Background(), nightly, act, ""); err != nil {
 		t.Fatalf("a detached command's failure arrives on the trail, not at the caller: %v", err)
 	}
 	r.Wait()
@@ -199,7 +199,7 @@ func TestAnInvalidActionFiresNothing(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, f := runner(t)
 	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
-	err := r.Fire(context.Background(), nightly, action.Action{Kind: action.KindTask})
+	err := r.Fire(context.Background(), nightly, action.Action{Kind: action.KindTask}, "")
 	if err == nil || !strings.Contains(err.Error(), "title") {
 		t.Fatalf("want a refusal naming title, got %v", err)
 	}
@@ -215,7 +215,7 @@ func TestAnUnattributableSourceFiresNothing(t *testing.T) {
 	r, f := runner(t)
 	f.HTask(t, `echo '{"task":{"id":"01AAA"}}'`)
 	act := action.Action{Kind: action.KindTask, Args: map[string]string{"title": "sweep"}}
-	if err := r.Fire(context.Background(), action.Source{Kind: action.SourceCron}, act); err == nil {
+	if err := r.Fire(context.Background(), action.Source{Kind: action.SourceCron}, act, ""); err == nil {
 		t.Fatal("want a refusal")
 	}
 	if len(f.Calls(t)) != 0 {
@@ -230,7 +230,7 @@ func TestARunIsOnTheTrailAndNowhereElse(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	r, _ := runner(t)
 	act := action.Action{Kind: action.KindShell, Args: map[string]string{"command": "true"}}
-	if err := r.Fire(context.Background(), nightly, act); err != nil {
+	if err := r.Fire(context.Background(), nightly, act, ""); err != nil {
 		t.Fatalf("fire: %v", err)
 	}
 	r.Wait()
@@ -243,6 +243,58 @@ func TestARunIsOnTheTrailAndNowhereElse(t *testing.T) {
 	}
 	if got := doc.RunEvents[0].Name; got != "sched.run.fired" {
 		t.Fatalf("the §8.1 name is %q", got)
+	}
+}
+
+// The project a job or a trigger was WRITTEN in is the project its action
+// fires into. Without it the call lands on whatever board the daemon's own
+// working directory resolves to, which is one project for every schedule this
+// user has, and never the one the operator named.
+func TestTheSignalsProjectIsWhereTheActionLandsUnlessItNamesOne(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	for _, c := range []struct {
+		name string
+		act  action.Action
+		want string
+	}{
+		{
+			name: "the row's project",
+			act:  action.Action{Kind: action.KindTask, Args: map[string]string{"title": "sweep"}},
+			want: "create sweep --project /repo/mine --json --as cron:nightly",
+		},
+		{
+			name: "an action that names its own",
+			act: action.Action{Kind: action.KindTask, Args: map[string]string{
+				"title": "sweep", "project": "/repo/theirs"}},
+			want: "create sweep --project /repo/theirs --json --as cron:nightly",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, f := runner(t)
+			f.HTask(t, `echo '{"task":{"id":"01AAA","seq":7,"title":"sweep"}}'`)
+			if err := r.Fire(context.Background(), nightly, c.act, "/repo/mine"); err != nil {
+				t.Fatalf("fire: %v", err)
+			}
+			r.Wait()
+			if got := f.Calls(t)[0]; got != c.want {
+				t.Fatalf("argv:\n got %q\nwant %q", got, c.want)
+			}
+		})
+	}
+}
+
+// §8.1 gives every event a project, and a run written without one is a trail
+// nobody can read per project.
+func TestARunCarriesTheProjectItFiredIn(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	r, _ := runner(t)
+	act := action.Action{Kind: action.KindShell, Args: map[string]string{"command": "true"}}
+	if err := r.Fire(context.Background(), nightly, act, "/repo/mine"); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	r.Wait()
+	if ev := onlyEvent(t, r); ev.Project != "/repo/mine" {
+		t.Fatalf("the run carries the project %q", ev.Project)
 	}
 }
 

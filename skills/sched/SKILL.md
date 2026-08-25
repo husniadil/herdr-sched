@@ -11,13 +11,12 @@ a message over hmail, a worker through hdis, a shell command — as the
 principal the contract already names for it: `cron:<job id>` or
 `trigger:<id>`, so the actor is on every event trail the action touches.
 
-**Read this first: there is a cron half and no trigger half yet.** A schedule
-is `job_add`. An inbound webhook or a file watcher is not here, and if you
-were asked for one, say so plainly rather than reaching for a verb that is not
-there — and do not reach for `crontab`, a background `sleep` loop, or a
-detached process instead, for a trigger OR for a schedule. Scheduling is what
-this plugin exists to own, and standing up a second scheduler beside it is the
-thing that will be hardest to unpick later.
+**Read this first: both halves are here.** A schedule is `job_add`. An inbound
+webhook or a file watcher is `trigger_add`. Do not reach for `crontab`, a
+background `sleep` loop, a detached process, or a listener of your own, for a
+trigger OR for a schedule. Scheduling is what this plugin exists to own, and
+standing up a second scheduler beside it is the thing that will be hardest to
+unpick later.
 
 ## Reach for the tools, not the shell
 
@@ -33,6 +32,10 @@ not be: a dispatched worker pane can have the door and not the binary.
 | `job_list` | Every schedule here, with when it last fired and when it fires next. |
 | `job_remove` | Take one off for good. |
 | `job_enable` / `job_disable` | Stop one firing, or let it fire again, without losing it. |
+| `trigger_add` | Write down an inbound trigger: a webhook on a URL, or a watcher on a path. A webhook's secret is answered HERE and never again. |
+| `trigger_list` | Every trigger here, with its URL, its limits and what it has fired this hour. Never a secret. |
+| `trigger_remove` | Take one off for good; a webhook's key goes with it. |
+| `trigger_enable` / `trigger_disable` | Stop one firing, or let it fire again, without losing it. |
 | `doctor` | Whether the plugin can work at all. Run it FIRST when anything else refuses. |
 | `events` | The append-only trail of what this plugin did. |
 | `dump` | The whole store in one document. |
@@ -42,6 +45,8 @@ not be: a dispatched worker pane can have the door and not the binary.
 
 On the CLI they are `hsched job add <id> <schedule> <action>`, `hsched job
 list`, `hsched job remove <id>`, `hsched job enable|disable <id>`, `hsched
+trigger add <id> <kind> <action>`, `hsched trigger list`, `hsched trigger
+remove <id>`, `hsched trigger enable|disable <id>`, `hsched
 doctor`, `hsched events`, `hsched dump`, `hsched parked list`, `hsched parked
 resolve <id>` and `hsched stop`. The CLI
 adds `hsched events --follow`, which keeps the connection and prints each
@@ -76,6 +81,63 @@ kind never takes. A `USAGE` here is worth reading in full — it names the field
 
 `hsched doctor` reports which jobs were skipped at the last start, which is
 the first thing to check when a schedule "did not run".
+
+## Writing a trigger
+
+`trigger_add` takes an id, a kind — `webhook` or `watch`, and there is no third
+— and an action kind, with the action's own arguments as an object. Both kinds
+also take a `cooldown` in seconds and a `max_per_hour`:
+
+```json
+{"id": "deploy", "kind": "webhook", "action": "shell",
+ "args": {"command": "./bin/deploy"}, "cooldown": 60, "max_per_hour": 10}
+```
+
+```json
+{"id": "inbox", "kind": "watch", "path": "/abs/path/to/file",
+ "action": "task", "args": {"title": "something landed"}}
+```
+
+**A webhook's secret is answered once and never again.** `trigger_add` is the
+only place it is ever rendered — no list, no dump, no doctor will print it, and
+there is no verb that reissues one. Hand it to the operator in the same turn
+you create the trigger, and say plainly that the only way back from a lost key
+is to remove the trigger and write it again.
+
+Signing is `X-Sched-Signature: sha256=<hmac-hex>`, an HMAC-SHA256 over the
+**raw request body** with that secret, and the request is a `POST` to the URL
+the add answered with. The signature is verified before anything parses a byte
+of the body: what the body says decides nothing, so any body — `{}` included —
+is fine. A request that does not verify is dropped onto the trail and fires
+nothing.
+
+**A watcher's path is absolute**, and a relative one is refused when the row is
+written: it would be relative to your working directory, and the daemon that
+stats it is somewhere else. It polls on the daemon's own tick, so a change is
+noticed within one tick rather than at once. **The first look records and does
+not fire** — a watcher written against a file that already exists must not fire
+for a change that predates it — and a watcher re-enabled after a spell off does
+the same thing rather than firing for the gap.
+
+Both limits refuse **loudly**: a firing held down by the cooldown or the hourly
+limit lands on the run trail as `sched.run.limited` naming the rule, and a
+webhook caller is answered `429` with the same words. A `503` there is not a
+limit at all — it is this daemon unable to work, and `doctor` is the next call.
+
+## The action vocabulary
+
+Four kinds, and the list is closed. A job and a trigger fire the same four:
+
+| Action | What it does | Arguments |
+| --- | --- | --- |
+| `task` | Files a task on the htask board | `title` (required), `description`, `project`, `priority` |
+| `mail` | Sends a notify, or an ask, over hmail | `to` and `body` (required), `ask`, `project` |
+| `dispatch` | Brings a worker up for a ready task via hdis | `task` (required), `project` |
+| `shell` | Runs a command on the host | `command` (required), `dir` |
+
+An argument the kind does not name is refused when the row is written, not at
+3am. The action lands in the project the row was written in unless it names a
+`project` of its own.
 
 ## You never say who you are
 

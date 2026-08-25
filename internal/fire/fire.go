@@ -54,7 +54,13 @@ type Runner struct {
 // can log it. A shell action is detached from the tick (note 2) and its
 // outcome therefore arrives on the trail rather than here: Fire answers nil
 // once the command has started, and the run lands when it ends.
-func (r *Runner) Fire(ctx context.Context, src action.Source, a action.Action) error {
+//
+// project is the scope the ROW was written in, and it is where the action
+// lands unless the action names one of its own (§4.2). Without it a sibling
+// resolves the project from this daemon's own working directory, which is one
+// board for every schedule this user has and never the one the operator wrote
+// the row in.
+func (r *Runner) Fire(ctx context.Context, src action.Source, a action.Action, project string) error {
 	// Both are create-time checks, re-run here rather than trusted: the row
 	// they were checked on lives in a JSON document an operator can edit.
 	if err := src.Validate(); err != nil {
@@ -64,13 +70,13 @@ func (r *Runner) Fire(ctx context.Context, src action.Source, a action.Action) e
 		return err
 	}
 	if a.Kind == action.KindShell {
-		return r.shell(ctx, src, a)
+		return r.shell(ctx, src, a, project)
 	}
-	detail, err := r.call(ctx, src, a)
+	detail, err := r.call(ctx, src, a, project)
 	if err != nil {
-		return r.record(src, a, store.KindFailed, failure(detail, err))
+		return r.record(src, a, project, store.KindFailed, failure(detail, err))
 	}
-	return r.record(src, a, store.KindFired, detail)
+	return r.record(src, a, project, store.KindFired, detail)
 }
 
 // Wait blocks until every detached shell action has finished and its run is
@@ -80,14 +86,19 @@ func (r *Runner) Wait() { r.detached.Wait() }
 
 // call performs the one action that reaches a sibling, and answers with what
 // the run should say about it.
-func (r *Runner) call(ctx context.Context, src action.Source, a action.Action) (map[string]any, error) {
+func (r *Runner) call(ctx context.Context, src action.Source, a action.Action, project string) (map[string]any, error) {
 	as := src.Principal()
+	// The action's own project wins where it names one: an operator who wrote
+	// a schedule to file into another project meant it.
+	if p := a.Arg("project"); p != "" {
+		project = p
+	}
 	switch a.Kind {
 	case action.KindTask:
 		task, err := (&htask.Client{Bin: r.HTaskBin, Principal: as}).Create(ctx, htask.Draft{
 			Title:       a.Arg("title"),
 			Description: a.Arg("description"),
-			Project:     a.Arg("project"),
+			Project:     project,
 			Priority:    atoi(a.Arg("priority")),
 		})
 		if err != nil {
@@ -96,7 +107,7 @@ func (r *Runner) call(ctx context.Context, src action.Source, a action.Action) (
 		return map[string]any{"task": task.ID, "seq": task.Seq, "title": task.Title}, nil
 	case action.KindMail:
 		client := &hmail.Client{Bin: r.HMailBin, Principal: as}
-		draft := hmail.Draft{To: a.Arg("to"), Body: a.Arg("body"), Project: a.Arg("project")}
+		draft := hmail.Draft{To: a.Arg("to"), Body: a.Arg("body"), Project: project}
 		post := client.Send
 		if a.Ask() {
 			post = client.Ask
@@ -107,7 +118,7 @@ func (r *Runner) call(ctx context.Context, src action.Source, a action.Action) (
 		}
 		return map[string]any{"message": m.ID, "to": m.To, "mail_kind": m.Kind}, nil
 	case action.KindDispatch:
-		res, err := (&hdis.Client{Bin: r.HDisBin, Principal: as}).Dispatch(ctx, a.Arg("task"), a.Arg("project"))
+		res, err := (&hdis.Client{Bin: r.HDisBin, Principal: as}).Dispatch(ctx, a.Arg("task"), project)
 		if err != nil {
 			return map[string]any{"task": a.Arg("task")}, err
 		}
@@ -121,10 +132,10 @@ func (r *Runner) call(ctx context.Context, src action.Source, a action.Action) (
 // shell starts the command and hands the tick back. The run is recorded by
 // the goroutine that waits for it, which is the whole point of detaching:
 // a slow command must not hold up every other schedule.
-func (r *Runner) shell(ctx context.Context, src action.Source, a action.Action) error {
+func (r *Runner) shell(ctx context.Context, src action.Source, a action.Action, project string) error {
 	run, err := shellact.Start(ctx, shellact.Command{Line: a.Arg("command"), Dir: a.Arg("dir")})
 	if err != nil {
-		return r.record(src, a, store.KindFailed, map[string]any{
+		return r.record(src, a, project, store.KindFailed, map[string]any{
 			"command": a.Arg("command"), "error": err.Error(),
 		})
 	}
@@ -140,19 +151,19 @@ func (r *Runner) shell(ctx context.Context, src action.Source, a action.Action) 
 		// Nothing above this can report a failure to a caller that has
 		// already been handed back its tick, so the store is the only
 		// place left to be loud in.
-		_ = r.record(src, a, kind, detail)
+		_ = r.record(src, a, project, kind, detail)
 	}()
 	return nil
 }
 
 // record writes one run to the trail, and answers with the failure the run
 // carries so a caller sees the same thing the operator will.
-func (r *Runner) record(src action.Source, a action.Action, kind string, detail map[string]any) error {
+func (r *Runner) record(src action.Source, a action.Action, project, kind string, detail map[string]any) error {
 	if detail == nil {
 		detail = map[string]any{}
 	}
 	detail["action"] = a.Kind
-	ev := store.NewEvent(r.now(), store.EntityRun, kind, src.ID, src.Principal(), detail)
+	ev := store.NewEvent(r.now(), store.EntityRun, kind, src.ID, src.Principal(), project, detail)
 	if err := r.Store.RecordRun(ev); err != nil {
 		return err
 	}

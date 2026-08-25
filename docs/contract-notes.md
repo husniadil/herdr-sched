@@ -57,6 +57,40 @@ and counted by `doctor` as an orphan — rather than a webhook nobody holds a ke
 for. A duplicate id is refused before a key is drawn, so a refused write can
 never replace a live trigger's secret.
 
+## §4.1 — the project key is not always the git common dir's parent
+
+§4.1 resolves a project to the parent of the git common dir. This plugin takes
+that parent only when the common dir IS a `.git`, and asks git for the working
+tree directly otherwise.
+
+The contract's rule is right for the case it was written for: an ordinary clone
+and every linked worktree of it report `<repo>/.git`, whose parent is the
+repository — which is what makes a worktree and its main checkout one project,
+and that behaviour is unchanged here. It is wrong in two shapes the rule does
+not name:
+
+- In a **submodule** the common dir is `<super>/.git/modules/<name>`, so the
+  parent is `<super>/.git/modules`. That is a path inside git's own internals,
+  it is SHARED by every submodule of that superproject, and neither the
+  superproject nor the submodule can reach it from where it stands. Every
+  submodule of one superproject would answer to one project key, and schedules
+  written in two of them would read each other's rows.
+- With **`--separate-git-dir`** the common dir is wherever the operator put it,
+  so its parent has nothing to do with the working tree. Kept together, which
+  is the usual reason to use the flag, every clone under that directory
+  collapses into one project.
+
+So `internal/project`.`gitCommonRoot` takes the parent only for a literal
+`.git`, and otherwise reads `--show-toplevel`. A bare repository has no working
+tree and falls through to the documented not-a-repository answer, which is the
+directory itself. Symlinks are resolved either way, as §4.1 says.
+
+This is a divergence in the rule's SPELLING and not in its intent: the project
+is still the repository a directory belongs to, one key per repository, stable
+across worktrees. The exit condition is §4.1 itself being amended to say
+"working tree" rather than "the common dir's parent", at which point this entry
+is a note about a fix rather than a divergence.
+
 ## §13 parity — `status` and `sweep` are not here yet
 
 The repo standard's parity list is `doctor · status · stop · dump · events ·

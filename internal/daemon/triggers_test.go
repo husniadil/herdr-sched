@@ -430,6 +430,116 @@ func TestADisabledWebhookRefusesOntoTheTrailRatherThanFiring(t *testing.T) {
 	}
 }
 
+// Writing a webhook is a duplicate check, a key, and a row, and the three are
+// one act. Two callers writing the same id at once must leave the live trigger
+// holding the key its own caller was handed: a loser that drew a key after the
+// winner's row landed would have replaced a working webhook's secret with one
+// nobody was ever given.
+func TestTwoCallersWritingOneWebhookLeaveTheWinnersKeyLive(t *testing.T) {
+	d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
+
+	const callers = 8
+	var start, done sync.WaitGroup
+	start.Add(1)
+	secrets := make([]string, callers)
+	errs := make([]error, callers)
+	for i := 0; i < callers; i++ {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			start.Wait()
+			raw, err := call(t, d, "trigger.add", deployArgs())
+			errs[i] = err
+			if err == nil {
+				secrets[i] = decode[TriggerChange](t, raw).Secret
+			}
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+
+	won := ""
+	wins := 0
+	for i := range errs {
+		if errs[i] == nil {
+			wins++
+			won = secrets[i]
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("%d of %d callers wrote the trigger, want exactly one", wins, callers)
+	}
+	held, ok := d.Secrets.Get("deploy")
+	if !ok {
+		t.Fatal("the live trigger holds no key at all")
+	}
+	if held != won {
+		t.Error("the live trigger holds a key its caller was never handed: a loser's key overwrote the winner's")
+	}
+}
+
+// A store that could not answer the claim is a FAILED run, not a rate limit.
+// The two read the same way to a caller — nothing fired — and they are not the
+// same thing at all: one is a rule doing its job, the other is this daemon
+// unable to work, and a signal that landed nowhere on the trail is a signal
+// nobody can find afterwards.
+func TestAStoreThatCannotClaimIsAFailedRunRatherThanALimit(t *testing.T) {
+	d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	if _, err := call(t, d, "trigger.add", deployArgs()); err != nil {
+		t.Fatalf("trigger.add: %v", err)
+	}
+	stale, ok := d.Store.Trigger("deploy")
+	if !ok {
+		t.Fatal("the trigger was not written")
+	}
+	// The row goes between the read and the claim, which is the shape every
+	// store failure at the claim takes: the daemon holds a row the store will
+	// not answer for.
+	if _, err := call(t, d, "trigger.remove", map[string]any{"id": "deploy"}); err != nil {
+		t.Fatalf("trigger.remove: %v", err)
+	}
+
+	verdict := d.fireTrigger(context.Background(), stale, map[string]any{"trigger_kind": trigger.KindWebhook})
+	if verdict.Fire {
+		t.Fatal("a claim the store refused fired anyway")
+	}
+	if verdict.Limit != "" {
+		t.Errorf("the refusal names the limit %q, and no rule refused this", verdict.Limit)
+	}
+	if verdict.Reason == "" {
+		t.Error("the refusal says nothing about why")
+	}
+	run := oneRun(t, d, "deploy", store.KindFailed)
+	if run.Detail["error"] == nil {
+		t.Errorf("the failed run does not say what went wrong: %+v", run.Detail)
+	}
+}
+
+// And at the door: a refusal carrying no limit is this daemon unable to work,
+// which is 503 rather than the 429 that tells a caller to slow down.
+func TestADoorRefusalWithNoLimitIsUnavailableRatherThanRateLimited(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	raw, err := call(t, d, "trigger.add", deployArgs())
+	if err != nil {
+		t.Fatalf("trigger.add: %v", err)
+	}
+	secret := decode[TriggerChange](t, raw).Secret
+	base := serveInbound(t, d)
+	// The store's own directory is closed to writing, so the claim cannot be
+	// saved. Restored before the temp dir is removed.
+	dir := filepath.Dir(d.Store.Path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("close %s to writing: %v", dir, err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+
+	status, answer := post(t, base+"deploy", secret, []byte(`{}`))
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("a store that could not claim answered %d: %s", status, answer)
+	}
+}
+
 // The watcher fires on a changed file across ticks, in a temp dir.
 func TestTheWatcherFiresOnAChangedFileAcrossTicks(t *testing.T) {
 	testenv.SkipUnlessFull(t)

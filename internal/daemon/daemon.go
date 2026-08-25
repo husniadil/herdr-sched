@@ -84,6 +84,13 @@ type Daemon struct {
 	followers watchers
 	// skipped is what the last start passed over, for doctor (note 2).
 	skipped skips
+	// writingTrigger serialises writing one trigger down. Every connection is
+	// answered on its own goroutine, and a webhook is written as a duplicate
+	// check, then a key, then a row — three steps the store's own lock covers
+	// one at a time and nothing covers together. Two callers writing the same
+	// id at once would otherwise interleave into a live trigger holding the
+	// loser's key, which is a working webhook that silently stops verifying.
+	writingTrigger sync.Mutex
 	// inbound is the webhook door as doctor reports it.
 	inbound inbound
 }
@@ -617,7 +624,7 @@ func (d *Daemon) pass(v verbs.Verb, req protocol.Request) error {
 			Reason:      res.Reason,
 			AtMS:        now.UnixMilli(),
 		}
-		ev := store.NewEvent(now, store.EntityParked, store.KindParked, p.ID, req.Caller(),
+		ev := store.NewEvent(now, store.EntityParked, store.KindParked, p.ID, req.Caller(), req.Project,
 			map[string]any{"verb": v.Gated, "reason": res.Reason})
 		if err := d.Store.Park(p, ev); err != nil {
 			return err
@@ -660,7 +667,7 @@ func (d *Daemon) resolveParked(ctx context.Context, req protocol.Request) (Parke
 		state, kind = store.ParkedRefused, store.KindRefused
 	}
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityParked, kind, id, req.Caller(), nil)
+	ev := store.NewEvent(now, store.EntityParked, kind, id, req.Caller(), req.Project, nil)
 	// The move is the one-winner check and it happens BEFORE the verb runs:
 	// after it, two resolves could both read the row as waiting and both run
 	// the verb, with the side effect really happening twice and the loser told
@@ -699,7 +706,7 @@ func (d *Daemon) resolveParked(ctx context.Context, req protocol.Request) (Parke
 	if err != nil {
 		// The decision stands; the verb did not run. Say why, in the verb's
 		// own words, and leave the row saying so.
-		failed := store.NewEvent(d.now(), store.EntityParked, store.KindFailed, id, req.Caller(),
+		failed := store.NewEvent(d.now(), store.EntityParked, store.KindFailed, id, req.Caller(), req.Project,
 			map[string]any{"error": codes.Message(err)})
 		if ferr := d.Store.FailParked(id, codes.Message(err), failed); ferr != nil {
 			d.logf("recording that the parked %s failed: %v", id, ferr)

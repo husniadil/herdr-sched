@@ -93,9 +93,13 @@ var All = []Verb{
 		Name: "dump", MCP: "dump", CLI: []string{"dump"},
 		Short: "Print the whole store as JSON",
 		Long: "Everything this daemon remembers across restarts, in one document " +
-			"(§5.8): the actions the policy gate parked and the §8 event trail. It " +
-			"is the daemon's own live set rather than a re-read of the file, so it " +
-			"is what the next save will write.",
+			"(§5.8): the cron jobs, the inbound triggers, the actions the policy " +
+			"gate parked, and each of those entities' own §8 trail beside it, with " +
+			"the run trail that has no rows beside it. A webhook's HMAC secret is " +
+			"NOT here — it is kept in a file this document does not hold, so no door " +
+			"that renders the document can print one. It is the daemon's own live " +
+			"set rather than a re-read of the file, so it is what the next save will " +
+			"write.",
 	},
 	{
 		Name: "events", MCP: "events", CLI: []string{"events"},
@@ -160,9 +164,9 @@ var All = []Verb{
 		Name: "job.enable", MCP: "job_enable", CLI: []string{"job", "enable"},
 		Short: "Let a schedule fire again",
 		Long: "A job enabled after a spell disabled does NOT fire what it missed: the " +
-			"cursor is where it was, and the first instant after this one is what " +
-			"fires. Enabling a job that is already enabled changes nothing and records " +
-			"nothing.",
+			"cursor moves past the instant that has just passed, and the first instant " +
+			"after this one is what fires. Enabling a job that is already enabled changes " +
+			"nothing and records nothing.",
 		Args: []Arg{
 			{Name: "id", Type: String, Desc: "The job to enable", Required: true, Positional: true},
 		},

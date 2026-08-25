@@ -189,7 +189,15 @@ func (d *Daemon) webhook(ctx context.Context, w http.ResponseWriter, r *http.Req
 		"trigger_kind": trigger.KindWebhook, "bytes": len(body),
 	})
 	if !verdict.Fire {
-		answer(w, http.StatusTooManyRequests, map[string]any{
+		// A refusal that names the rule that made it is 429: the caller is
+		// being asked to slow down. One that names none is this daemon unable
+		// to work — the store could not answer — and telling a caller they are
+		// rate limited for that is a failure wearing the wrong answer.
+		status := http.StatusTooManyRequests
+		if verdict.Limit == "" {
+			status = http.StatusServiceUnavailable
+		}
+		answer(w, status, map[string]any{
 			"trigger": id, "fired": false, "limit": verdict.Limit, "reason": verdict.Reason,
 		})
 		return

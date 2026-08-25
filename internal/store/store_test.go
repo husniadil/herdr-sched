@@ -14,7 +14,7 @@ import (
 func at(ms int64) time.Time { return time.UnixMilli(ms) }
 
 func parkedEvent(ms int64, kind, id string) Event {
-	return NewEvent(at(ms), EntityParked, kind, id, "agent:wA:p1", nil)
+	return NewEvent(at(ms), EntityParked, kind, id, "agent:wA:p1", "", nil)
 }
 
 func openTemp(t *testing.T) *Store {
@@ -52,7 +52,7 @@ func TestAParkedActionAndItsEventAreSavedTogether(t *testing.T) {
 // §8.1 spells the event name out of its parts, so the name and the fields can
 // never disagree.
 func TestTheEventNameIsSpelledFromItsParts(t *testing.T) {
-	ev := NewEvent(at(7), EntityParked, KindResolved, "pk-1", "agent:wA:p1", map[string]any{"verb": "sched.stop"})
+	ev := NewEvent(at(7), EntityParked, KindResolved, "pk-1", "agent:wA:p1", "", map[string]any{"verb": "sched.stop"})
 	if ev.Name != "sched.parked.resolved" {
 		t.Fatalf("name = %q, want sched.parked.resolved", ev.Name)
 	}

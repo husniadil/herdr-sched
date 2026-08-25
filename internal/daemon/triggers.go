@@ -50,7 +50,13 @@ type TriggerChange struct {
 // The secret is written BEFORE the row: a crash between the two writes leaves
 // a key with no trigger, which is inert, rather than a webhook nobody holds a
 // key for.
+//
+// The check, the key and the row are one act, so they are taken under one
+// lock: the store refuses the duplicate under its own, and that is one step of
+// three.
 func (d *Daemon) addTrigger(req protocol.Request) (TriggerChange, error) {
+	d.writingTrigger.Lock()
+	defer d.writingTrigger.Unlock()
 	if req.AllProjects {
 		// A trigger fires INTO one project's board and mailbox. "Every
 		// project" is a way of reading, not a place to write one.
@@ -105,7 +111,7 @@ func (d *Daemon) addTrigger(req protocol.Request) (TriggerChange, error) {
 			return TriggerChange{}, err
 		}
 	}
-	ev := store.NewEvent(now, store.EntityTrigger, store.KindAdded, t.ID, req.Caller(),
+	ev := store.NewEvent(now, store.EntityTrigger, store.KindAdded, t.ID, req.Caller(), req.Project,
 		map[string]any{
 			"trigger_kind": t.Kind, "action": t.Action.Kind,
 			"cooldown_seconds": t.CooldownSeconds, "max_per_hour": t.MaxPerHour,
@@ -147,7 +153,7 @@ func (d *Daemon) listTriggers(req protocol.Request) (TriggersReport, error) {
 func (d *Daemon) removeTrigger(req protocol.Request) (TriggerChange, error) {
 	id, _ := req.Args["id"].(string)
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityTrigger, store.KindRemoved, id, req.Caller(), nil)
+	ev := store.NewEvent(now, store.EntityTrigger, store.KindRemoved, id, req.Caller(), req.Project, nil)
 	was, err := d.Store.RemoveTrigger(id, ev)
 	if err != nil {
 		return TriggerChange{}, err
@@ -173,7 +179,7 @@ func (d *Daemon) setTriggerEnabled(req protocol.Request, on bool) (TriggerChange
 		kind = store.KindEnabled
 	}
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityTrigger, kind, id, req.Caller(), nil)
+	ev := store.NewEvent(now, store.EntityTrigger, kind, id, req.Caller(), req.Project, nil)
 	held, changed, err := d.Store.SetTriggerEnabled(id, on, ev)
 	if err != nil {
 		return TriggerChange{}, err
@@ -244,6 +250,13 @@ func (d *Daemon) fireTrigger(ctx context.Context, t trigger.Trigger, why map[str
 		return trigger.Fired(now, held), v
 	})
 	if err != nil {
+		// The store could not answer the claim, which is this daemon unable to
+		// work rather than a rule refusing. It lands on the run trail as a
+		// FAILURE and carries no limit, so nothing downstream reads it as a
+		// caller that should slow down.
+		d.recordTriggerRun(t, store.KindFailed, detailWith(why, map[string]any{
+			"action": t.Action.Kind, "error": codes.Message(err),
+		}))
 		d.logf("firing the trigger %s: %v", t.ID, err)
 		return trigger.Verdict{Reason: codes.Message(err)}
 	}
@@ -261,7 +274,7 @@ func (d *Daemon) fireTrigger(ctx context.Context, t trigger.Trigger, why map[str
 		}))
 		return verdict
 	}
-	if err := d.Fire.Fire(ctx, t.Source(), t.Action); err != nil {
+	if err := d.Fire.Fire(ctx, t.Source(), t.Action, t.Project); err != nil {
 		// The run is already on the trail in the runner's own words. This is
 		// the operator's log line for the same failure.
 		d.logf("the trigger %s fired %s and it failed: %v", t.ID, t.Action.Kind, err)
@@ -273,7 +286,7 @@ func (d *Daemon) fireTrigger(ctx context.Context, t trigger.Trigger, why map[str
 // reached the runner: held down by a limit, dropped for a signature that did
 // not hold, or arriving at a daemon with nothing to fire it.
 func (d *Daemon) recordTriggerRun(t trigger.Trigger, kind string, detail map[string]any) {
-	ev := store.NewEvent(d.now(), store.EntityRun, kind, t.ID, t.Source().Principal(), detail)
+	ev := store.NewEvent(d.now(), store.EntityRun, kind, t.ID, t.Source().Principal(), t.Project, detail)
 	if err := d.Store.RecordRun(ev); err != nil {
 		d.logf("recording the run of %s: %v", t.ID, err)
 		return

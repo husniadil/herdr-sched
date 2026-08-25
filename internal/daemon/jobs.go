@@ -113,7 +113,7 @@ func (d *Daemon) addJob(req protocol.Request) (JobChange, error) {
 	if err := j.Validate(); err != nil {
 		return JobChange{}, err
 	}
-	ev := store.NewEvent(now, store.EntityJob, store.KindAdded, j.ID, req.Caller(),
+	ev := store.NewEvent(now, store.EntityJob, store.KindAdded, j.ID, req.Caller(), req.Project,
 		map[string]any{"schedule": j.Schedule, "action": j.Action.Kind, "catch_up": j.CatchUp})
 	if err := d.Store.AddJob(j, ev); err != nil {
 		return JobChange{}, err
@@ -173,7 +173,7 @@ func (d *Daemon) listJobs(req protocol.Request) (JobsReport, error) {
 func (d *Daemon) removeJob(req protocol.Request) (JobChange, error) {
 	id, _ := req.Args["id"].(string)
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityJob, store.KindRemoved, id, req.Caller(), nil)
+	ev := store.NewEvent(now, store.EntityJob, store.KindRemoved, id, req.Caller(), req.Project, nil)
 	was, err := d.Store.RemoveJob(id, ev)
 	if err != nil {
 		return JobChange{}, err
@@ -186,6 +186,13 @@ func (d *Daemon) removeJob(req protocol.Request) (JobChange, error) {
 // setJobEnabled turns one schedule off or on. Asking for the state it is
 // already in is not a refusal: it is the state the caller wanted, and the
 // answer says nothing moved.
+//
+// Enabling moves the cursor past the instant that has just passed, which is
+// the same thing enabling a WATCH does to its stamp. A disabled job is passed
+// over entirely and its cursor stays where it was, so every instant it slept
+// through is behind the cursor; without this the first tick after would read
+// that as a miss and fire for it, which is the backlog an operator who
+// disabled the job asked not to have.
 func (d *Daemon) setJobEnabled(req protocol.Request, on bool) (JobChange, error) {
 	id, _ := req.Args["id"].(string)
 	kind := store.KindDisabled
@@ -193,7 +200,7 @@ func (d *Daemon) setJobEnabled(req protocol.Request, on bool) (JobChange, error)
 		kind = store.KindEnabled
 	}
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityJob, kind, id, req.Caller(), nil)
+	ev := store.NewEvent(now, store.EntityJob, kind, id, req.Caller(), req.Project, nil)
 	held, changed, err := d.Store.SetJobEnabled(id, on, ev)
 	if err != nil {
 		return JobChange{}, err
@@ -201,8 +208,33 @@ func (d *Daemon) setJobEnabled(req protocol.Request, on bool) (JobChange, error)
 	if changed {
 		d.Emitted(ev)
 		d.logf("%s %s the job %s", req.Caller(), kind, id)
+		if on {
+			if at, ok := lastInstant(held.Schedule, now); ok && at > held.LastFiredMS {
+				if err := d.Store.AdvanceJob(id, at, nil); err != nil {
+					d.logf("moving the job %s past %s: %v", id, time.UnixMilli(at).UTC().Format(time.RFC3339), err)
+				} else {
+					held.LastFiredMS = at
+				}
+			}
+		}
 	}
 	return JobChange{Job: d.row(held, now), State: kind, Changed: changed}, nil
+}
+
+// lastInstant is the most recent scheduled instant at or before now, in Unix
+// milliseconds. A row hand-edited into an expression that no longer parses has
+// none, and neither has one whose calendar nothing before now satisfies: both
+// leave the cursor alone, which is what the tick already does with them.
+func lastInstant(schedule string, now time.Time) (int64, bool) {
+	s, err := cron.Parse(schedule)
+	if err != nil {
+		return 0, false
+	}
+	prev, ok := s.Prev(now)
+	if !ok {
+		return 0, false
+	}
+	return prev.UnixMilli(), true
 }
 
 // row renders one job with the next instant it fires at.
@@ -259,7 +291,7 @@ func (d *Daemon) perform(ctx context.Context, decision job.Decision, atStart boo
 			From:    decision.SkippedFrom.Format(time.RFC3339),
 			Through: decision.SkippedThrough.Format(time.RFC3339),
 		}
-		ev := store.NewEvent(d.now(), store.EntityJob, store.KindSkipped, j.ID, j.Source().Principal(),
+		ev := store.NewEvent(d.now(), store.EntityJob, store.KindSkipped, j.ID, j.Source().Principal(), j.Project,
 			map[string]any{
 				"missed": report.Missed, "at_least": report.AtLeast,
 				"from": report.From, "through": report.Through,
@@ -296,7 +328,7 @@ func (d *Daemon) perform(ctx context.Context, decision job.Decision, atStart boo
 		})
 		return
 	}
-	if err := d.Fire.Fire(ctx, j.Source(), j.Action); err != nil {
+	if err := d.Fire.Fire(ctx, j.Source(), j.Action, j.Project); err != nil {
 		// The run is already on the trail in the runner's own words. This is
 		// the operator's log line for the same failure.
 		d.logf("the job %s fired %s and it failed: %v", j.ID, j.Action.Kind, err)
@@ -307,7 +339,7 @@ func (d *Daemon) perform(ctx context.Context, decision job.Decision, atStart boo
 // runner. The runner writes its own; this is for the two failures that happen
 // before it is ever called.
 func (d *Daemon) recordRun(j job.Job, kind string, detail map[string]any) {
-	ev := store.NewEvent(d.now(), store.EntityRun, kind, j.ID, j.Source().Principal(), detail)
+	ev := store.NewEvent(d.now(), store.EntityRun, kind, j.ID, j.Source().Principal(), j.Project, detail)
 	if err := d.Store.RecordRun(ev); err != nil {
 		d.logf("recording the run of %s: %v", j.ID, err)
 		return

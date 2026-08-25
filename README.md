@@ -79,8 +79,10 @@ hsched mcp
 ```
 
 It registers as `herdr-sched` and serves the verbs under their bare names —
-`job_add`, `job_list`, `job_remove`, `job_enable`, `job_disable`, `doctor`,
-`dump`, `events`, `parked_list`, `parked_resolve`, `stop` — so a
+`job_add`, `job_list`, `job_remove`, `job_enable`, `job_disable`,
+`trigger_add`, `trigger_list`, `trigger_remove`, `trigger_enable`,
+`trigger_disable`, `doctor`, `dump`, `events`, `parked_list`,
+`parked_resolve`, `stop` — so a
 caller reads them as herdr-sched's, not as names that repeat the binary. A
 dotted verb becomes an underscored tool name, and that name is a field on the
 verb rather than a transformation applied at the door.
@@ -384,9 +386,11 @@ gate_command = ["/usr/local/bin/herdr-policy"]
 # The §8.3 hook, handed every event on stdin, run detached.
 on_event = ["/usr/local/bin/notify-me"]
 
-# Where the inbound webhook door listens. Loopback, and only loopback: the
-# trust boundary is the local user account. `off` is no inbound door at all,
-# which is what a fleet with only file watchers wants.
+# Where the inbound webhook door listens. Loopback by default: the trust
+# boundary is the local user account. A routable address is accepted — an
+# operator who writes one has said so on purpose — and the daemon says so in
+# the log, once, naming what is now reachable off this host. `off` is no
+# inbound door at all, which is what a fleet with only file watchers wants.
 webhook_addr = "127.0.0.1:8797"
 ```
 

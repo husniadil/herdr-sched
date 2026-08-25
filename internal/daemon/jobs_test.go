@@ -13,6 +13,7 @@ import (
 	"github.com/husniadil/herdr-sched/internal/codes"
 	"github.com/husniadil/herdr-sched/internal/config"
 	"github.com/husniadil/herdr-sched/internal/fire"
+	"github.com/husniadil/herdr-sched/internal/job"
 	"github.com/husniadil/herdr-sched/internal/protocol"
 	"github.com/husniadil/herdr-sched/internal/store"
 	"github.com/husniadil/herdr-sched/internal/testenv"
@@ -200,6 +201,24 @@ func TestAJobIsListedInTheProjectItWasWrittenIn(t *testing.T) {
 	raw, _ = d.Handle(context.Background(), every)
 	if rep := decode[JobsReport](t, raw); rep.Count != 2 {
 		t.Errorf("every project's list answered %d rows, want 2", rep.Count)
+	}
+}
+
+// §8.1 gives every event a project, and it is the scope the call was made in.
+// A trail whose every row reads "no project" cannot answer what happened in
+// this one.
+func TestAVerbsEventCarriesTheProjectItWasCalledIn(t *testing.T) {
+	d := newDaemon(t)
+	mine := protocolRequest("job.add", nightlyArgs(), "/repo/mine")
+	if _, err := d.Handle(context.Background(), mine); err != nil {
+		t.Fatalf("job.add: %v", err)
+	}
+	trail := d.Store.Snapshot().JobEvents
+	if len(trail) != 1 {
+		t.Fatalf("the job trail holds %d events", len(trail))
+	}
+	if trail[0].Project != "/repo/mine" {
+		t.Errorf("the event carries the project %q", trail[0].Project)
 	}
 }
 
@@ -563,6 +582,34 @@ func TestAFiredRunReachesTheFollowers(t *testing.T) {
 	}
 }
 
+// A job re-enabled after a spell disabled fires from the NEXT instant and not
+// from the backlog it slept through. The cursor is what carries that: it sat
+// still while the row was off, and every instant behind it would otherwise be
+// read as a miss the first tick after fires for.
+func TestAReEnabledJobFiresFromTheNextInstantAndNotTheBacklog(t *testing.T) {
+	testenv.New(t)
+	d := newDaemonIn(t, "2026-08-25T09:00:00Z")
+	addFiredYesterday(t, d, "2026-08-22T03:00:00Z")
+
+	if _, err := call(t, d, "job.disable", map[string]any{"id": "nightly-sweep"}); err != nil {
+		t.Fatalf("job.disable: %v", err)
+	}
+	if _, err := call(t, d, "job.enable", map[string]any{"id": "nightly-sweep"}); err != nil {
+		t.Fatalf("job.enable: %v", err)
+	}
+
+	held, ok := d.Store.Job("nightly-sweep")
+	if !ok {
+		t.Fatal("the job is gone")
+	}
+	if got := time.UnixMilli(held.LastFiredMS).UTC().Format(time.RFC3339); got != "2026-08-25T03:00:00Z" {
+		t.Errorf("the cursor is at %s; enabling moves it past the instant that has already passed", got)
+	}
+	if due := job.Due(d.now(), d.Store.Jobs(), false); len(due) != 0 {
+		t.Errorf("the next tick fires %d instant(s) of backlog: %+v", len(due), due)
+	}
+}
+
 // firingDaemon is a daemon with a runner and a pinned clock, which is what
 // every case above drives.
 func firingDaemon(t *testing.T, now string) (*Daemon, *testenv.Fake) {
@@ -631,7 +678,7 @@ func handEdit(t *testing.T, d *Daemon, id, schedule string) {
 		t.Fatalf("no job %s", id)
 	}
 	held.Schedule = schedule
-	ev := store.NewEvent(d.now(), store.EntityJob, store.KindAdded, id, "operator", nil)
+	ev := store.NewEvent(d.now(), store.EntityJob, store.KindAdded, id, "operator", held.Project, nil)
 	if _, err := d.Store.RemoveJob(id, ev); err != nil {
 		t.Fatalf("RemoveJob: %v", err)
 	}
