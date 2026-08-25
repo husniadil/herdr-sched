@@ -101,6 +101,12 @@ func TestAMissingConfigIsTheUnconfiguredDefault(t *testing.T) {
 	if len(cfg.GateCommand) != 0 {
 		t.Errorf("gate command = %v, want none", cfg.GateCommand)
 	}
+	// The shipped webhook default has to REACH a loaded config, not merely
+	// exist as a constant beside it. A Load that spells its own address is a
+	// second default nobody edits when the first one moves.
+	if cfg.WebhookAddr != DefaultWebhookAddr {
+		t.Errorf("webhook_addr = %q, want the default %q", cfg.WebhookAddr, DefaultWebhookAddr)
+	}
 }
 
 func TestEveryDocumentedKeyIsRead(t *testing.T) {

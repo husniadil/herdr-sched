@@ -650,6 +650,36 @@ func TestADoorThatCannotBindNeverStopsTheDaemon(t *testing.T) {
 	}
 }
 
+// doctor reports the port the door ACTUALLY got, not the one it was asked
+// for. The two differ whenever the kernel picks — `webhook_addr = 127.0.0.1:0`
+// is the honest case — and an operator reading `:0` back has been told the one
+// thing that cannot be curled. It is what makes an ephemeral port a usable
+// option at all, so it is pinned rather than left to the reading of one line.
+func TestTheDoorReportsThePortItGotRatherThanTheOneItAskedFor(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
+	d.WebhookAddr = "127.0.0.1:0"
+	ln := d.listenWebhooks()
+	if ln == nil {
+		t.Fatal("the door did not bind a kernel-chosen port")
+	}
+	defer ln.Close()
+	addr, reason := d.inbound.read()
+	if reason != "" {
+		t.Fatalf("a door that bound reported the failure %q", reason)
+	}
+	if addr == d.WebhookAddr {
+		t.Errorf("doctor reports %q, the address asked for: :0 is the one port nobody can call", addr)
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "0" || port == "" {
+		t.Errorf("doctor reports %q, want the concrete port the listener got", addr)
+	}
+	if addr != ln.Addr().String() {
+		t.Errorf("doctor reports %q, the listener is on %q", addr, ln.Addr())
+	}
+}
+
 func TestNoInboundDoorIsOpenedWhenNoneIsAskedFor(t *testing.T) {
 	for _, addr := range []string{"", WebhookOff} {
 		d, _ := triggerDaemon(t, "2026-08-25T10:00:00Z")
