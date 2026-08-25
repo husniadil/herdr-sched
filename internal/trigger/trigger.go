@@ -87,9 +87,13 @@ type Stamp struct {
 	// Present says the path existed at that look. A file deleted and written
 	// again is a change, and without this the two zeroes of an absent file
 	// read as "never looked".
-	Present bool  `json:"present,omitempty"`
-	ModMS   int64 `json:"mod,omitempty"`
-	Size    int64 `json:"size,omitempty"`
+	Present bool `json:"present,omitempty"`
+	// ModNS is the mtime in NANOSECONDS. Milliseconds threw away resolution
+	// the filesystem has: two writes microseconds apart share a millisecond,
+	// and a same-size rewrite inside one was invisible. That change was lost
+	// rather than delayed, because the stamp already equalled the new state.
+	ModNS int64 `json:"modns,omitempty"`
+	Size  int64 `json:"size,omitempty"`
 }
 
 // Validate refuses everything that could not fire, at the moment the row is
@@ -244,7 +248,7 @@ func Changed(was, now Stamp) (Stamp, bool) {
 	if !was.Seen {
 		return now, false
 	}
-	return now, was.Present != now.Present || was.ModMS != now.ModMS || was.Size != now.Size
+	return now, was.Present != now.Present || was.ModNS != now.ModNS || was.Size != now.Size
 }
 
 func describeKind(kind string) string {

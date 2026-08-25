@@ -36,7 +36,14 @@ import (
 
 // Version is the document's shape. A document from a version this binary does
 // not know is refused rather than guessed at.
-const Version = 1
+//
+// 2: a watch trigger's stamp records the mtime in nanoseconds under `modns`,
+// where version 1 recorded milliseconds under `mod`. The gate earns its keep
+// here: a version-1 document read by this binary would carry a stamp with no
+// mtime at all, and the next look at an unchanged file would read as a change
+// and FIRE the trigger's action. Refusing the document is the loud failure;
+// firing an action for a change that never happened is the silent one.
+const Version = 2
 
 // Document is the whole store, as it is written and as it is read back.
 //

@@ -212,33 +212,33 @@ func TestFiringMovesTheCursorAndDropsWhatLeftTheWindow(t *testing.T) {
 // The first look records and does not fire: a trigger written against a file
 // that already exists must not fire for a change that predates it.
 func TestTheFirstLookAtAWatchedPathRecordsAndDoesNotFire(t *testing.T) {
-	stamp, fire := Changed(Stamp{}, Stamp{Present: true, ModMS: 1000, Size: 7})
+	stamp, fire := Changed(Stamp{}, Stamp{Present: true, ModNS: 1000, Size: 7})
 	if fire {
 		t.Error("the first look fired")
 	}
-	if !stamp.Seen || !stamp.Present || stamp.ModMS != 1000 || stamp.Size != 7 {
+	if !stamp.Seen || !stamp.Present || stamp.ModNS != 1000 || stamp.Size != 7 {
 		t.Errorf("the first look recorded %+v", stamp)
 	}
 }
 
 func TestAWatchedPathFiresOnEveryKindOfChangeAndOnNothingElse(t *testing.T) {
-	was := Stamp{Seen: true, Present: true, ModMS: 1000, Size: 7}
+	was := Stamp{Seen: true, Present: true, ModNS: 1000, Size: 7}
 	for what, now := range map[string]Stamp{
-		"a newer mtime":  {Seen: true, Present: true, ModMS: 2000, Size: 7},
-		"a new size":     {Seen: true, Present: true, ModMS: 1000, Size: 9},
+		"a newer mtime":  {Seen: true, Present: true, ModNS: 2000, Size: 7},
+		"a new size":     {Seen: true, Present: true, ModNS: 1000, Size: 9},
 		"a deleted file": {Seen: true, Present: false},
 	} {
 		if _, fire := Changed(was, now); !fire {
 			t.Errorf("%s did not fire", what)
 		}
 	}
-	if _, fire := Changed(was, Stamp{Seen: true, Present: true, ModMS: 1000, Size: 7}); fire {
+	if _, fire := Changed(was, Stamp{Seen: true, Present: true, ModNS: 1000, Size: 7}); fire {
 		t.Error("an unchanged file fired")
 	}
 	// A file written again after being deleted is a change, and the two zeroes
 	// of the absent look must not read as "never looked".
 	gone := Stamp{Seen: true, Present: false}
-	if _, fire := Changed(gone, Stamp{Seen: true, Present: true, ModMS: 3000, Size: 1}); !fire {
+	if _, fire := Changed(gone, Stamp{Seen: true, Present: true, ModNS: 3000, Size: 1}); !fire {
 		t.Error("a file written again after deletion did not fire")
 	}
 	if _, fire := Changed(gone, Stamp{Seen: true, Present: false}); fire {

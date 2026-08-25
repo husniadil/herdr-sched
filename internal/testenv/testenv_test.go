@@ -1,8 +1,11 @@
 package testenv
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/husniadil/herdr-sched/internal/config"
@@ -130,5 +133,49 @@ func TestAnyFakeNamedHTaskRefusesTheGroupedTaskVerbs(t *testing.T) {
 	}
 	if out, err := exec.Command("htask", "create", "sweep").Output(); err != nil || !strings.Contains(string(out), "01AAA") {
 		t.Fatalf("the top-level form did not reach the script: %s %v", out, err)
+	}
+}
+
+// Every call to a fake lands as its own line, even when the callers overlap.
+//
+// The log is appended to by concurrent processes, so a call written as more
+// than one append can interleave with another call's: two argv runs land
+// before either newline does, the reader sees ONE line, and an assertion on
+// how many times a sibling was reached quietly counts low.
+func TestConcurrentCallsToAFakeEachLandAsTheirOwnLine(t *testing.T) {
+	SkipUnlessFull(t)
+	f := New(t)
+	f.Bin(t, "htask", "exit 0")
+	const callers = 24
+	var start, done sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < callers; i++ {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			start.Wait()
+			cmd := exec.Command("htask", "create", fmt.Sprintf("row-%02d", i), "--json")
+			cmd.Env = os.Environ()
+			if err := cmd.Run(); err != nil {
+				t.Errorf("call %d: %v", i, err)
+			}
+		}(i)
+	}
+	start.Done()
+	done.Wait()
+
+	calls := f.Calls(t)
+	if len(calls) != callers {
+		t.Fatalf("%d overlapping calls were logged as %d lines", callers, len(calls))
+	}
+	seen := map[string]bool{}
+	for _, got := range calls {
+		seen[got] = true
+	}
+	for i := 0; i < callers; i++ {
+		want := fmt.Sprintf("create row-%02d --json", i)
+		if !seen[want] {
+			t.Errorf("the log lost the call %q", want)
+		}
 	}
 }

@@ -347,7 +347,7 @@ func look(path string) trigger.Stamp {
 	}
 	return trigger.Stamp{
 		Present: true,
-		ModMS:   info.ModTime().UnixMilli(),
+		ModNS:   info.ModTime().UnixNano(),
 		Size:    info.Size(),
 	}
 }

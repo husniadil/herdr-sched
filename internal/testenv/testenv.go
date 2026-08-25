@@ -56,9 +56,17 @@ func New(t *testing.T) *Fake {
 func (f *Fake) Bin(t *testing.T, name, script string) {
 	t.Helper()
 	path := filepath.Join(f.Dir, name)
+	// The whole line is built first and appended in ONE write. The log is
+	// shared by concurrent callers, and a call written as two appends
+	// interleaves with another call's: both argv runs land before either
+	// newline does, the reader sees one line where there were two, and an
+	// assertion counting how often a sibling was reached quietly counts low.
 	body := "#!/bin/sh\n" +
-		"printf '%s\\037' \"$@\" >> \"$" + FakeDirEnv + "/calls.log\"\n" +
-		"printf '\\n' >> \"$" + FakeDirEnv + "/calls.log\"\n" + guards[name] + script + "\n"
+		"__sep=$(printf '\\037')\n" +
+		"__line=''\n" +
+		"for __a in \"$@\"; do __line=\"$__line$__a$__sep\"; done\n" +
+		"printf '%s\\n' \"$__line\" >> \"$" + FakeDirEnv + "/calls.log\"\n" +
+		guards[name] + script + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write fake %s: %v", name, err)
 	}

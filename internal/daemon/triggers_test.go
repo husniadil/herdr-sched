@@ -937,3 +937,32 @@ func TestABurstThroughTheDoorSpendsOneCooldownOnce(t *testing.T) {
 		t.Errorf("the action was performed %d times", got)
 	}
 }
+
+// A rewrite that keeps the size and lands inside the same millisecond as the
+// last look is still a change, and the watcher must see it.
+//
+// It is not a test artifact. The filesystem records the two writes microseconds
+// apart; truncating the mtime to milliseconds is what threw the difference
+// away, and the stamp then already equalled the new state, so the change was
+// lost for good rather than delayed to the next tick.
+func TestASameSizeRewriteInsideOneMillisecondIsStillAChange(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	watched := filepath.Join(t.TempDir(), "inbox")
+	if err := os.WriteFile(watched, []byte("one"), 0o600); err != nil {
+		t.Fatalf("write the watched file: %v", err)
+	}
+	before := look(watched)
+	if err := os.WriteFile(watched, []byte("two"), 0o600); err != nil {
+		t.Fatalf("rewrite the watched file: %v", err)
+	}
+	after := look(watched)
+	if after.Size != before.Size {
+		t.Fatalf("the rewrite changed the size, so this case proves nothing: %d then %d", before.Size, after.Size)
+	}
+	if before.ModNS/1e6 != after.ModNS/1e6 {
+		t.Skipf("the two writes fell in different milliseconds, so this case proves nothing")
+	}
+	if _, fire := trigger.Changed(trigger.Stamp{Seen: true, Present: before.Present, ModNS: before.ModNS, Size: before.Size}, after); !fire {
+		t.Errorf("a same-size rewrite inside one millisecond did not fire: %+v then %+v", before, after)
+	}
+}
