@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,5 +177,35 @@ func write(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The shipped webhook default has to be a port the fleet running this plugin
+// does not already own. proxenos has served 127.0.0.1:8787 on the reference
+// machine since before this plugin existed, so shipping that port meant every
+// daemon there started with its webhook door dead and doctor naming a
+// collision nobody chose. The default is stable rather than ephemeral on
+// purpose: a webhook URL that moves on every restart breaks every caller
+// already configured, and it breaks them at the caller, where nobody here is
+// watching.
+func TestTheShippedWebhookDefaultIsLoopbackAndNotAPortTheFleetOwns(t *testing.T) {
+	host, port, err := net.SplitHostPort(DefaultWebhookAddr)
+	if err != nil {
+		t.Fatalf("DefaultWebhookAddr %q is not host:port: %v", DefaultWebhookAddr, err)
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		t.Errorf("DefaultWebhookAddr host = %q, want a loopback address: the trust boundary is the local user account", host)
+	}
+	if port == "0" {
+		t.Error("DefaultWebhookAddr asks the kernel for any free port: a webhook URL that moves on every restart breaks every caller already configured")
+	}
+	// Ports on the reference fleet that another daemon owned first.
+	for _, taken := range []struct{ port, owner string }{
+		{"8787", "proxenos"},
+	} {
+		if port == taken.port {
+			t.Errorf("DefaultWebhookAddr = %q, but %s serves %s on the reference machine: the door would be dead on arrival there",
+				DefaultWebhookAddr, taken.owner, taken.port)
+		}
 	}
 }

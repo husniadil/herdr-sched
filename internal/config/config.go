@@ -97,7 +97,14 @@ func SecretsPath() string { return filepath.Join(StateDir(), Name+".secrets.json
 // scheduler that fires shell commands is not a thing to put on a network
 // interface. Anything reaching it from elsewhere arrives through a tunnel the
 // operator set up deliberately.
-const DefaultWebhookAddr = "127.0.0.1:8787"
+//
+// The port is 8797 and not 8787, which this plugin shipped first: proxenos has
+// served 8787 on the reference fleet since before this plugin existed, so the
+// shipped default was dead on arrival on the one machine that runs it. It is a
+// FIXED port rather than an ephemeral one the kernel picks, because a webhook
+// URL that moves on every daemon restart breaks every caller already holding
+// it, and it breaks them where nobody here can see it.
+const DefaultWebhookAddr = "127.0.0.1:8797"
 
 // ConfigPath is <config dir>/sched.toml (§10.1). One config path per plugin,
 // and no other: a file under a different directory or a different extension is

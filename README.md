@@ -197,7 +197,7 @@ written again.
 ```sh
 body='{"ref":"refs/heads/main"}'
 sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
-curl -X POST http://127.0.0.1:8787/trigger/deploy \
+curl -X POST http://127.0.0.1:8797/trigger/deploy \
   -H "X-Sched-Signature: sha256=$sig" -d "$body"
 ```
 
@@ -210,11 +210,18 @@ because a URL being probed is something an operator wants to see, and a
 trigger that stopped working because a caller's secret drifted otherwise looks
 exactly like one nobody is calling.
 
-The door **defaults to loopback** (`127.0.0.1:8787`, `webhook_addr` in the
+The door **defaults to loopback** (`127.0.0.1:8797`, `webhook_addr` in the
 config, `off` for no door at all). The trust boundary is the local user
 account (§3.5), and a scheduler that fires shell commands is not a thing to
 put on a network interface, so reaching it from elsewhere is meant to be a
 tunnel the operator sets up deliberately.
+
+The port is **fixed rather than ephemeral**. A door on a port the kernel picks
+would move on every daemon restart, and every caller already holding the URL
+would break at the caller, where nothing here is watching. It is 8797 because
+8787, which this plugin shipped first, is served by proxenos on the reference
+fleet: a default nothing on the machine can bind is a default that only ever
+starts degraded.
 
 `webhook_addr` is **not** held to loopback: an operator who writes a routable
 address has said so on purpose, and refusing it would be this plugin deciding
@@ -380,7 +387,7 @@ on_event = ["/usr/local/bin/notify-me"]
 # Where the inbound webhook door listens. Loopback, and only loopback: the
 # trust boundary is the local user account. `off` is no inbound door at all,
 # which is what a fleet with only file watchers wants.
-webhook_addr = "127.0.0.1:8787"
+webhook_addr = "127.0.0.1:8797"
 ```
 
 Every key takes an environment override, spelled `SCHED_<KEY>`:

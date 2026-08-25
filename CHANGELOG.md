@@ -26,7 +26,7 @@ they share.
   `--max_per_hour`, and everything that could not fire is refused when the row
   is **written**.
 - The inbound webhook door: one HTTP server on a loopback port by default
-  (`webhook_addr`, `127.0.0.1:8787` by default, `off` for none), answering
+  (`webhook_addr`, `127.0.0.1:8797` by default, `off` for none), answering
   `POST /trigger/<id>`. The signature is verified over the **raw body before
   anything parses a byte of it**, and a request that does not verify is
   dropped onto the run trail naming the trigger and fires nothing. A door that
