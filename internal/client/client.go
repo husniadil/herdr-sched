@@ -126,9 +126,15 @@ func (c *Client) dialOrStart() (net.Conn, error) {
 		}
 		select {
 		case err := <-c.exited:
-			// It died rather than served. Waiting out the rest of the timeout
-			// to answer "none answered" would hide the one thing the operator
-			// needs, which is what the daemon said on its way out.
+			// It died rather than served. One more dial first: two doors that
+			// raced to start a daemon leave the loser exiting on the lock the
+			// winner holds, and the winner is the daemon this call wanted.
+			if conn, err := net.Dial("unix", path); err == nil {
+				return conn, nil
+			}
+			// Waiting out the rest of the timeout to answer "none answered"
+			// would hide the one thing the operator needs, which is what the
+			// daemon said on its way out.
 			return nil, codes.Errorf(codes.Unavailable,
 				"the daemon this call started exited before it answered on %s: %s; it writes why to %s",
 				path, exitReason(err), config.LogPath())

@@ -97,7 +97,7 @@ func serve(f *daemonFlags) error {
 		log.Printf("a store left by another build could be under %s; this daemon is not using it", dir)
 	}
 
-	runner := &fire.Runner{Store: st}
+	runner := &fire.Runner{Store: st, Log: log.Printf}
 	d := &daemon.Daemon{
 		Store:       st,
 		Secrets:     secrets,

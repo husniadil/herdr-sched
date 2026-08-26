@@ -96,7 +96,7 @@ func TestRemovingAnswersWithTheRowAsItWas(t *testing.T) {
 func TestEnablingAnAlreadyEnabledJobWritesNoEvent(t *testing.T) {
 	s := openTemp(t)
 	s.AddJob(nightly("sweep"), jobEvent(1, KindAdded, "sweep"))
-	_, changed, err := s.SetJobEnabled("sweep", true, jobEvent(2, KindEnabled, "sweep"))
+	_, changed, err := s.SetJobEnabled("sweep", true, 0, jobEvent(2, KindEnabled, "sweep"))
 	if err != nil {
 		t.Fatalf("SetJobEnabled: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestEnablingAnAlreadyEnabledJobWritesNoEvent(t *testing.T) {
 		t.Errorf("%d job events, want the add alone", n)
 	}
 
-	was, changed, err := s.SetJobEnabled("sweep", false, jobEvent(3, KindDisabled, "sweep"))
+	was, changed, err := s.SetJobEnabled("sweep", false, 0, jobEvent(3, KindDisabled, "sweep"))
 	if err != nil || !changed || was.Enabled {
 		t.Fatalf("disabling answered %v, changed %v, enabled %v", err, changed, was.Enabled)
 	}

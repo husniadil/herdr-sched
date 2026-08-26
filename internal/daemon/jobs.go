@@ -201,22 +201,26 @@ func (d *Daemon) setJobEnabled(req protocol.Request, on bool) (JobChange, error)
 	}
 	now := d.now()
 	ev := store.NewEvent(now, store.EntityJob, kind, id, req.Caller(), req.Project, nil)
-	held, changed, err := d.Store.SetJobEnabled(id, on, ev)
+	// The cursor moves in the same write as the flag: the tick runs on its
+	// own goroutine, and a job it reads as enabled with a stale cursor is
+	// the backlog this move exists to skip.
+	var advanceTo int64
+	if on {
+		// An absent job is refused below, by the write, with the same words
+		// as before; here it just has no cursor to move.
+		if was, found := d.Store.Job(id); found {
+			if at, ok := lastInstant(was.Schedule, now); ok && at > was.LastFiredMS {
+				advanceTo = at
+			}
+		}
+	}
+	held, changed, err := d.Store.SetJobEnabled(id, on, advanceTo, ev)
 	if err != nil {
 		return JobChange{}, err
 	}
 	if changed {
 		d.Emitted(ev)
 		d.logf("%s %s the job %s", req.Caller(), kind, id)
-		if on {
-			if at, ok := lastInstant(held.Schedule, now); ok && at > held.LastFiredMS {
-				if err := d.Store.AdvanceJob(id, at, nil); err != nil {
-					d.logf("moving the job %s past %s: %v", id, time.UnixMilli(at).UTC().Format(time.RFC3339), err)
-				} else {
-					held.LastFiredMS = at
-				}
-			}
-		}
 	}
 	return JobChange{Job: d.row(held, now), State: kind, Changed: changed}, nil
 }

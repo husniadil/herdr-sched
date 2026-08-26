@@ -84,7 +84,11 @@ func (s *Store) RemoveJob(id string, ev Event) (job.Job, error) {
 // already in changes nothing and writes no event: an `enabled` on the trail
 // for a job that was already enabled is a state change that never happened.
 // The second answer says whether anything moved.
-func (s *Store) SetJobEnabled(id string, on bool, ev Event) (job.Job, bool, error) {
+//
+// advanceTo, when not zero, moves the cursor in the same write that flips the
+// flag. An enable that lands with a stale cursor is a job the tick can read
+// as behind, and fire for the backlog the enable meant to skip.
+func (s *Store) SetJobEnabled(id string, on bool, advanceTo int64, ev Event) (job.Job, bool, error) {
 	var was job.Job
 	changed := false
 	err := s.update(func(doc *Document) error {
@@ -97,6 +101,9 @@ func (s *Store) SetJobEnabled(id string, on bool, ev Event) (job.Job, bool, erro
 				return nil
 			}
 			doc.Jobs[i].Enabled = on
+			if advanceTo != 0 {
+				doc.Jobs[i].LastFiredMS = advanceTo
+			}
 			was = doc.Jobs[i]
 			changed = true
 			doc.JobEvents = append(doc.JobEvents, ev)

@@ -15,6 +15,7 @@ package fire
 import (
 	"context"
 	"errors"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -42,6 +43,10 @@ type Runner struct {
 	// the store and no follower, and an event written in one place and not
 	// the other is the one thing that split cannot be allowed to be.
 	Emit func(store.Event)
+	// Log is where a detached shell run says its record never reached the
+	// store. Nothing else is left to say it: the tick was handed back long
+	// before the command finished. Nil falls back to the standard logger.
+	Log func(format string, args ...any)
 
 	// detached counts the shell actions still running, so a caller that
 	// needs to see their runs on the trail can wait for them.
@@ -150,8 +155,11 @@ func (r *Runner) shell(ctx context.Context, src action.Source, a action.Action, 
 		}
 		// Nothing above this can report a failure to a caller that has
 		// already been handed back its tick, so the store is the only
-		// place left to be loud in.
-		_ = r.record(src, a, project, kind, detail)
+		// place left to be loud in, and the log the only place left when
+		// the store itself refuses.
+		if err := r.write(src, a, project, kind, detail); err != nil {
+			r.logf("recording the run of %s for %s: %v", a.Arg("command"), src.ID, err)
+		}
 	}()
 	return nil
 }
@@ -159,6 +167,20 @@ func (r *Runner) shell(ctx context.Context, src action.Source, a action.Action, 
 // record writes one run to the trail, and answers with the failure the run
 // carries so a caller sees the same thing the operator will.
 func (r *Runner) record(src action.Source, a action.Action, project, kind string, detail map[string]any) error {
+	if err := r.write(src, a, project, kind, detail); err != nil {
+		return err
+	}
+	if kind == store.KindFailed {
+		if reason, ok := detail["error"].(string); ok {
+			return errors.New(reason)
+		}
+	}
+	return nil
+}
+
+// write puts one run on the trail and hands it to Emit. The only failure it
+// answers with is the store's own.
+func (r *Runner) write(src action.Source, a action.Action, project, kind string, detail map[string]any) error {
 	if detail == nil {
 		detail = map[string]any{}
 	}
@@ -170,12 +192,15 @@ func (r *Runner) record(src action.Source, a action.Action, project, kind string
 	if r.Emit != nil {
 		r.Emit(ev)
 	}
-	if kind == store.KindFailed {
-		if reason, ok := detail["error"].(string); ok {
-			return errors.New(reason)
-		}
-	}
 	return nil
+}
+
+func (r *Runner) logf(format string, args ...any) {
+	if r.Log != nil {
+		r.Log(format, args...)
+		return
+	}
+	log.Printf(format, args...)
 }
 
 // failure is the run's detail with the sibling's own words on it, and its

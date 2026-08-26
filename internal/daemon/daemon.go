@@ -287,8 +287,23 @@ func (d *Daemon) answer(ctx context.Context, conn net.Conn) {
 		return
 	}
 	d.write(conn, protocol.Response{Result: result})
-	if req.Verb == "stop" && d.answered != nil {
+	if d.answered != nil && d.halted() && (req.Verb == "stop" || req.Verb == "parked.resolve") {
+		// A stop reaches here directly, or wrapped in the parked.resolve
+		// that let it through: either way it is this answer Serve waits on.
 		d.writeOnce.Do(func() { close(d.answered) })
+	}
+}
+
+// halted reports whether a stop has closed the halt channel.
+func (d *Daemon) halted() bool {
+	if d.halt == nil {
+		return false
+	}
+	select {
+	case <-d.halt:
+		return true
+	default:
+		return false
 	}
 }
 

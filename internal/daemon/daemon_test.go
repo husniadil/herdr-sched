@@ -395,6 +395,43 @@ func TestStoppingRemovesTheSocketAndTheLock(t *testing.T) {
 	}
 }
 
+// A stop the gate deferred and an operator then let through still brings
+// Serve down: the answer it waits on is the parked.resolve's, not a stop's.
+func TestAStopLetThroughTheGateStillStopsTheDaemon(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	f := testenv.New(t)
+	f.Gate(t, "defer", "an operator decides this one")
+	lock, err := Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := newDaemonOn(t, lock)
+	done := make(chan error, 1)
+	go func() { done <- d.Serve(context.Background(), ln) }()
+	waitForSocket(t)
+
+	_, err = askOverSocket(t, protocol.Request{Verb: "stop", Args: map[string]any{}, Pane: "wT:p1"})
+	id := codes.ParkedOf(err)
+	if id == "" {
+		t.Fatalf("the deferred stop was not parked: %v", err)
+	}
+	if _, err := askOverSocket(t, protocol.Request{Verb: "parked.resolve", Args: map[string]any{"id": id}, Pane: "wT:p1"}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the daemon did not stop after the parked stop was let through")
+	}
+}
+
 // §8.2: `events --follow` is handed the backlog and then every event as it is
 // written, and the daemon says when the stream is over.
 func TestFollowSendsTheBacklogAndThenLiveEvents(t *testing.T) {
