@@ -154,3 +154,122 @@ func TestTheChangelogNamesThisVersion(t *testing.T) {
 		t.Fatalf("the CHANGELOG does not mention %s", version.Version)
 	}
 }
+
+// The dashboard's pane is in the manifest, and it is a POPUP. A script the
+// repo carries and the manifest does not open is a view no operator can
+// reach, and the manifest is the only place that wiring exists.
+func TestTheManifestOpensTheDashboardInAPopup(t *testing.T) {
+	manifest := repoFile(t, "herdr-plugin.toml")
+	pane := strings.Index(manifest, "[[panes]]")
+	if pane < 0 {
+		t.Fatal("the manifest declares no [[panes]] entry, so the dashboard opens nowhere")
+	}
+	entry := manifest[pane:]
+	if next := strings.Index(entry[len("[[panes]]"):], "\n[["); next >= 0 {
+		entry = entry[:len("[[panes]]")+next]
+	}
+	for what, want := range map[string]string{
+		"a popup placement":    `placement = "popup"`,
+		"the dashboard script": `"./scripts/popup-dashboard.sh"`,
+	} {
+		if !strings.Contains(entry, want) {
+			t.Errorf("the [[panes]] entry does not carry %s (looked for %q)", what, want)
+		}
+	}
+}
+
+// A divergence the notes still record and the manifest has closed is worse
+// than one that was never written down: it is a reader being told the opposite
+// of what the plugin does. The pane entry is the one this repo actually closed,
+// and this is what stops it reopening on paper.
+func TestTheNotesDoNotStillDenyThePane(t *testing.T) {
+	manifest := repoFile(t, "herdr-plugin.toml")
+	notes := repoFile(t, filepath.Join("docs", "contract-notes.md"))
+	if !strings.Contains(manifest, "[[panes]]") {
+		return
+	}
+	if strings.Contains(notes, "no `[[panes]]`") {
+		t.Error("docs/contract-notes.md still records `no [[panes]]` as a divergence, and the manifest declares one")
+	}
+}
+
+// The dashboard READS. A popup carries no HERDR_PANE_ID, so its principal is
+// the human who opened it, and a mutating call from there is one walking past
+// the §9 gate that every write is held behind. The check is against the
+// registry rather than a list written here, so a verb that starts mutating
+// is covered the day it does.
+func TestTheDashboardCallsNoVerbThatWrites(t *testing.T) {
+	script := repoFile(t, filepath.Join("scripts", "popup-dashboard.sh"))
+	const marker = `"$HSCHED" `
+	found := 0
+	for rest := script; ; {
+		at := strings.Index(rest, marker)
+		if at < 0 {
+			break
+		}
+		rest = rest[at+len(marker):]
+		fields := strings.Fields(rest)
+		verb, ok := longestVerb(fields)
+		if !ok {
+			t.Errorf("the dashboard invokes something the verb registry does not name: %q", firstN(fields, 2))
+			continue
+		}
+		found++
+		if verb.Mutates {
+			t.Errorf("the dashboard calls %q, which writes: the popup is read-only", verb.Name)
+		}
+	}
+	if found == 0 {
+		t.Fatal("no invocation was found at all; the marker this test scans for has moved")
+	}
+}
+
+// longestVerb resolves the longest CLI path the leading fields spell, so
+// `job list` is read as the two-word verb rather than as `job`.
+func longestVerb(fields []string) (verbs.Verb, bool) {
+	for n := 2; n >= 1; n-- {
+		if len(fields) < n {
+			continue
+		}
+		if v, ok := verbs.ByCLI(fields[:n]); ok {
+			return v, true
+		}
+	}
+	return verbs.Verb{}, false
+}
+
+func firstN(fields []string, n int) []string {
+	if len(fields) < n {
+		return fields
+	}
+	return fields[:n]
+}
+
+// The dashboard never reaches for the secrets file. `trigger list` carries no
+// webhook secret because the key is not in the document it reads, and this is
+// what keeps that true of the popup as well: the rule is carried by where the
+// key IS, and a script that opened the file would walk straight around it.
+func TestTheDashboardNeverReadsTheSecretsFile(t *testing.T) {
+	script := repoFile(t, filepath.Join("scripts", "popup-dashboard.sh"))
+	name := filepath.Base(config.SecretsPath())
+	for _, line := range strings.Split(script, "\n") {
+		if !strings.Contains(line, name) {
+			continue
+		}
+		// Saying WHY it is not read is the one mention that is allowed.
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		t.Errorf("the dashboard names %s outside a comment: %q", name, strings.TrimSpace(line))
+	}
+}
+
+// jq is the dashboard's own runtime requirement, and a machine without it
+// gets a loud refusal rather than an empty dashboard. It is not a dependency
+// of this plugin: nothing Go builds needs it.
+func TestTheDashboardRefusesWithoutJQ(t *testing.T) {
+	script := repoFile(t, filepath.Join("scripts", "popup-dashboard.sh"))
+	if !strings.Contains(script, "command -v jq") {
+		t.Error("the dashboard does not check for jq, so a machine without it draws an empty view")
+	}
+}

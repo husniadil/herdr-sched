@@ -120,16 +120,6 @@ Both land with the work that gives them something to say. The registry test
 `TestTheCommonVerbsAreAllPresent` asserts their absence, so adding either is a
 deliberate edit to that test rather than a silent divergence closing itself.
 
-## §2.1 — no `[[panes]]`
-
-§2.1 as amended owes a plugin pane only where the plugin's concern includes an
-operator-facing view. There is a list to show on one now — `hsched job list` —
-and it is still not shipped, because the view worth having is jobs AND triggers
-side by side, and building the first half twice is how it ends up in the shape
-the second half does not fit. `hsched job list`, `hsched doctor` and `hsched
-events` are the human surface until then. This is the entry to close when the
-trigger half lands.
-
 ## The cron expression is UTC, and there is no timezone field
 
 The contract says nothing about how a schedule reads its clock; this plugin

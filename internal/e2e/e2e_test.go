@@ -580,3 +580,34 @@ func (w *world) post(url, signature string, body []byte) (int, string) {
 	answer, _ := io.ReadAll(res.Body)
 	return res.StatusCode, string(answer)
 }
+
+// Every script the manifest names PARSES. cmd/hsched checks each one is there
+// and executable, which a script with a syntax error still is: it fails when
+// Herdr runs it, on the operator's machine, at the moment they opened the
+// popup. Shelling out to `sh -n` is why this lives here rather than in the
+// fast loop, which spawns nothing.
+func TestEveryScriptTheManifestNamesParses(t *testing.T) {
+	w := setup(t)
+	manifest, err := os.ReadFile(filepath.Join(w.repo, "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	named := []string{}
+	for _, line := range strings.Split(string(manifest), "\n") {
+		if !strings.Contains(line, "./scripts/") {
+			continue
+		}
+		_, rest, _ := strings.Cut(line, "./scripts/")
+		name, _, _ := strings.Cut(rest, `"`)
+		named = append(named, name)
+	}
+	if len(named) == 0 {
+		t.Fatal("the manifest names no scripts at all")
+	}
+	for _, name := range named {
+		out, err := exec.Command("sh", "-n", filepath.Join(w.repo, "scripts", name)).CombinedOutput()
+		if err != nil {
+			t.Errorf("scripts/%s does not parse: %v\n%s", name, err, out)
+		}
+	}
+}
