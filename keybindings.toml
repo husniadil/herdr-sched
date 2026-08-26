@@ -1,0 +1,16 @@
+# Keybindings for the sched plugin.
+#
+# Herdr does not load a plugin's keybindings — a plugin cannot claim keys in
+# the operator's config. Copy the block below into your own
+# ~/.config/herdr/config.toml and change the key to whatever is free for you.
+#
+# `type = "plugin_action"` is what makes `command` a plugin action rather than
+# a shell command; the value is "<plugin id>.<action id>", both taken from
+# herdr-plugin.toml. Opening a dashboard that is already open is a no-op, so
+# the key can be leaned on without piling up panes.
+
+[[keys.command]]
+key = "prefix+c"
+type = "plugin_action"
+command = "herdr-sched.dashboard"
+description = "Open the sched dashboard"

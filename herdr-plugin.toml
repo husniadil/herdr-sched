@@ -70,3 +70,13 @@ placement = "popup"
 width = "90%"
 height = "80%"
 command = ["./scripts/popup-dashboard.sh"]
+
+# One action per popup, because Herdr binds keys to actions and not to panes:
+# without this there is no keyboard route to the dashboard at all. The id
+# matches the [[panes]] id above, which is what keybindings.toml relies on to
+# name it as herdr-sched.dashboard.
+[[actions]]
+id = "dashboard"
+title = "Open the sched dashboard"
+contexts = ["workspace"]
+command = ["./scripts/open-pane.sh", "dashboard"]
