@@ -10,7 +10,7 @@
 # the key can be leaned on without piling up panes.
 
 [[keys.command]]
-key = "prefix+c"
+key = "prefix+shift+c"
 type = "plugin_action"
 command = "herdr-sched.dashboard"
 description = "Open the sched dashboard"
