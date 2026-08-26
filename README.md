@@ -438,6 +438,36 @@ binary does not know is refused rather than overwritten.
 is written to named, so a reader who wants it without this binary knows where
 to look.
 
+## The dashboard, on a key
+
+One popup: every schedule with when it fires next, every trigger with what is
+holding it down, and the tail of the run trail. It is on Herdr's plugin menu,
+and it is a plugin action, so a key can reach it. It is read-only: a popup
+carries no `HERDR_PANE_ID`, so its principal is the human, and the CRUD stays
+on the gated verbs. The script needs `jq` and says so rather than drawing an
+empty dashboard.
+
+Herdr does not load a plugin's keybindings — a plugin does not get to claim
+keys in your config. Copy the block from `keybindings.toml` into
+`~/.config/herdr/config.toml` and change the key to whatever is free:
+
+```sh
+cat keybindings.toml >> ~/.config/herdr/config.toml
+```
+
+```toml
+[[keys.command]]
+key = "prefix+shift+c"
+type = "plugin_action"
+command = "herdr-sched.dashboard"
+description = "Open the sched dashboard"
+```
+
+`type = "plugin_action"` is what makes `command` an action rather than a shell
+command; the value is `<plugin id>.<action id>`, both from `herdr-plugin.toml`.
+Pressing the key when the dashboard is already open is a no-op rather than an
+error, so it can be leaned on.
+
 ## Building and testing
 
 ```sh
