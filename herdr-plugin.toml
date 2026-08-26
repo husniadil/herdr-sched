@@ -51,8 +51,22 @@ command = ["./scripts/on-pane-gone.sh"]
 on = "pane.exited"
 command = ["./scripts/on-pane-gone.sh"]
 
-# No [[panes]]. §2.1 as amended owes a plugin pane only where the plugin's
-# concern includes an operator-facing view. This build has no schedule to show
-# on one; `hsched doctor` and `hsched events` are its human surface until it
-# does, and shipping an empty view now would be a promise of a list that is not
-# there.
+# §2.1 as amended owes a plugin pane where the plugin's concern includes an
+# operator-facing view, and a schedule is one: what fires, when it fires next,
+# and what has fired. It is a shell script rather than a TUI because the CRUD
+# is low-frequency and already served by the gated verbs on both doors, so the
+# view only has to READ. It calls no verb that writes: a popup carries no
+# HERDR_PANE_ID, so its principal is the human, and a mutating call from here
+# would be one walking past the §9 gate.
+#
+# jq is the script's own runtime requirement and not this plugin's dependency:
+# nothing Go builds needs it, and a machine without it loses the popup rather
+# than the scheduler.
+[[panes]]
+id = "dashboard"
+title = "Sched dashboard"
+description = "Every schedule, every trigger and the tail of the run trail"
+placement = "popup"
+width = "90%"
+height = "80%"
+command = ["./scripts/popup-dashboard.sh"]
