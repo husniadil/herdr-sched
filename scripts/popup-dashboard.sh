@@ -58,6 +58,9 @@ next_key() {
   started=$(date +%s)
   key=""
   if ! read -r -t "$1" key 2>/dev/null; then
+    # EOF behind a partial line still delivered a key: hand it over now
+    # rather than sleeping an interval on input that has already arrived.
+    [ -n "$key" ] && { printf '%s' "$key"; return 0; }
     # A shell without `read -t` returns at once; sleep the interval so the
     # loop stays a redraw rather than a spin. Quitting still works — the popup
     # closes with the pane.
