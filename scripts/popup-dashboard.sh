@@ -84,10 +84,49 @@ JQ_LIB='
     then "(" + ((.args | to_entries | map(.value) | join(" "))) + ")" else "" end);
 '
 
+# usable says whether an answer can be RENDERED, and says loudly why not when
+# it cannot. It exists because piping the CLI straight into jq turns every
+# failure into a healthy-looking empty section: the contract puts a failure on
+# stdout as one JSON document (§6.2), jq reads that document happily, and
+# `(.count // 0) == 0` is then true for a daemon that refused exactly as it is
+# for a daemon with nothing to show. An empty scheduler and a scheduler that
+# is not answering must not look the same.
+#
+# Four ways an answer is not renderable, and each says which: nothing on
+# stdout at all, an error document, something that is not JSON, and a
+# non-zero status behind an otherwise readable document.
+usable() {
+  answer=$1
+  status=$2
+  if [ -z "$(printf '%s' "$answer" | tr -d '[:space:]')" ]; then
+    printf '  the daemon answered nothing (exit %s); is it running?\n' "$status"
+    return 1
+  fi
+  if ! printf '%s' "$answer" | jq -e . >/dev/null 2>&1; then
+    printf '  the daemon answered something that is not JSON (exit %s)\n' "$status"
+    return 1
+  fi
+  refusal=$(printf '%s' "$answer" | jq -r '
+    if type == "object" and .error then
+      "  the daemon refused: " + (.error.code // "?") + " " + (.error.message // "")
+    else empty end' 2>/dev/null)
+  if [ -n "$refusal" ]; then
+    printf '%s\n' "$refusal"
+    return 1
+  fi
+  if [ "$status" != 0 ]; then
+    printf '  the call failed (exit %s) and said nothing about why\n' "$status"
+    return 1
+  fi
+  return 0
+}
+
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 render_jobs() {
-  "$HSCHED" job list --json 2>/dev/null | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
+  answer=$("$HSCHED" job list --json 2>/dev/null); status=$?
+  usable "$answer" "$status" || return 0
+  printf '%s' "$answer" | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
     if (.count // 0) == 0 then "  no schedules"
     else
       ("  " + ("ID" | pad(16)) + ("SCHEDULE" | pad(16)) + ("ACTION" | pad(26))
@@ -101,11 +140,13 @@ render_jobs() {
           + ((.last_fired | ago) | pad(12))
           + (if (.unreadable // "") != "" then "unreadable: " + .unreadable
              elif (.next // "") == "" then "—" else .next end))
-    end' || echo "  the daemon is not answering; is it running?"
+    end'
 }
 
 render_triggers() {
-  "$HSCHED" trigger list --json 2>/dev/null | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
+  answer=$("$HSCHED" trigger list --json 2>/dev/null); status=$?
+  usable "$answer" "$status" || return 0
+  printf '%s' "$answer" | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
     if (.count // 0) == 0 then "  no triggers"
     else
       ("  " + ("ID" | pad(16)) + ("KIND" | pad(9)) + ("ACTION" | pad(26))
@@ -129,14 +170,16 @@ render_triggers() {
                   elif ($s.present // false) then "  present, \($s.size // 0) bytes"
                   else "  absent" end)
            else empty end))
-    end' || echo "  the daemon is not answering; is it running?"
+    end'
 }
 
 render_runs() {
   # The events verb has NO server-side entity filter and is not getting one
   # for a dashboard: the trail is read whole and narrowed here. It answers
   # oldest first, so the tail is reversed to put the newest at the top.
-  "$HSCHED" events --json 2>/dev/null | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
+  answer=$("$HSCHED" events --json 2>/dev/null); status=$?
+  usable "$answer" "$status" || return 0
+  printf '%s' "$answer" | jq -r --argjson now "$(date +%s)" "$JQ_LIB"'
     [(.events // [])[] | select(.entity == "run")] | reverse | .[0:12] as $runs
     | if ($runs | length) == 0 then "  nothing has fired yet"
       else ("  " + ("WHEN" | pad(12)) + ("KIND" | pad(10)) + ("ACTOR" | pad(22)) + "DETAIL"),
@@ -145,7 +188,7 @@ render_runs() {
             + ((.kind // "?") | pad(10))
             + ((.actor // "?") | clip(21) | pad(22))
             + ((.detail // {} | to_entries | map("\(.key)=\(.value)") | join(" ")) | clip(48)))
-      end' || echo "  the daemon is not answering; is it running?"
+      end'
 }
 
 while :; do

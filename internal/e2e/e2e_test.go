@@ -611,3 +611,43 @@ func TestEveryScriptTheManifestNamesParses(t *testing.T) {
 		}
 	}
 }
+
+// A daemon that REFUSES must not look like a daemon with nothing to show.
+// The contract puts a failure on stdout as one JSON document (§6.2), so a
+// dashboard that pipes the CLI straight into jq reads the refusal happily and
+// draws "no schedules" — silent misleading success, which is the one outcome
+// this plugin's principles rule out.
+//
+// The refusal is a real one rather than a stub: a state dir whose socket path
+// is past the kernel's sun_path limit is a daemon that cannot bind, which is
+// what an operator hits and what the reviewer reproduced.
+func TestTheDashboardSaysSoWhenTheDaemonRefuses(t *testing.T) {
+	w := setup(t)
+	if _, err := exec.LookPath("jq"); err != nil {
+		missing(t, "the dashboard needs jq and it is not on PATH: %v", err)
+	}
+	// Past the ~104-byte sun_path limit, so the daemon exits rather than
+	// listens and every call answers with the §6.2 error document.
+	tooLong := filepath.Join("/tmp", strings.Repeat("d", 90))
+	if err := os.MkdirAll(tooLong, 0o700); err != nil {
+		t.Fatalf("mkdir the over-long state dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tooLong) })
+
+	cmd := exec.Command(filepath.Join(w.repo, "scripts", "popup-dashboard.sh"))
+	cmd.Env = append(w.env, "SCHED_STATE_DIR="+tooLong)
+	cmd.Stdin = strings.NewReader("q\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run the dashboard: %v\n%s", err, out)
+	}
+	drawn := string(out)
+	if !strings.Contains(drawn, "the daemon refused") {
+		t.Errorf("the dashboard drew no refusal for a daemon that could not bind:\n%s", drawn)
+	}
+	for _, empty := range []string{"no schedules", "no triggers", "nothing has fired yet"} {
+		if strings.Contains(drawn, empty) {
+			t.Errorf("the dashboard drew %q for a daemon that refused; an outage reads as an empty scheduler", empty)
+		}
+	}
+}
