@@ -9,7 +9,7 @@ bug nobody has found yet.
 
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
 that day. Amended 2026-08-25 with the cron half, and again the same day with
-the trigger half.
+the trigger half. Amended 2026-08-27 with the §7.5 operator declaration.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -148,6 +148,32 @@ pins. A library would also bring its own scheduler, which is the half this
 plugin already owns and does differently: the cursor is on the row and is
 re-read from the store at every start, which is what makes a missed schedule a
 decision rather than a gap in a timer's memory.
+
+## §7.5 — the operator declaration is not implemented
+
+§7.5 is a MUST: "A plugin's `<name> mcp` MUST accept a flag, spelled
+`--operator`, declaring that this door speaks for the operator, and MUST NOT
+accept that declaration by any other route." `hsched mcp` takes no such flag,
+and this entry exists because the silence read as a decision nobody made.
+
+The rule reaches this plugin. `protocol.Request.Caller` derives the principal
+from the pane a door was spawned in and answers `unknown` for a caller outside
+one, and that answer is both the §9 gate's subject and the actor written onto
+every trail this daemon appends. A door registered in a desktop MCP client
+stands in no pane, so the jobs, triggers and `parked_resolve` rows an operator
+writes through it are attributed to `unknown` — the paneless case §7.5 exists
+to answer, not a case this plugin escapes.
+
+What is already in place is the half §7.5 shares with §3.2: `--as` carries the
+`cron:<job id>` and `trigger:<id>` principals (§3.1) that this daemon's own
+firings declare on their sibling calls, and it is excluded from the MCP door
+with its reason recorded in `mcpdoor.Globals`. The declaration §7.5 asks for is
+the door's counterpart to that exclusion and is not a second spelling of it.
+
+The exit condition is one flag on `newMCPCmd`, read once at start, resolved
+after `HERDR_PANE_ID` so a pane still wins, refusing to start with `FORBIDDEN`
+when a declared door carries one, with both halves pinned by tests as §7.5
+requires. Until then this is a MUST this build does not satisfy.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 
