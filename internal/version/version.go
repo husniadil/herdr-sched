@@ -6,7 +6,7 @@
 package version
 
 // Version is this plugin's own version. The manifest's version matches it.
-const Version = "0.2.0"
+const Version = "0.2.1"
 
 // Contract is the version of the Herdr plugin contract this binary satisfies.
 // The contract itself is not vendored here: it lives in agamemnon

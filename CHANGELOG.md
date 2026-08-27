@@ -6,14 +6,22 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-27
+
+The contract, read again: a deferred-action list scoped where 0.10.1 says it
+is scoped, and a resolution that was not the operator's own saying so on the
+trail.
+
 ### Changed
 
 - `parked list` answers the resolved project's deferred actions alone and
-  refuses `--all-projects` with `USAGE`, as contract 0.10.1 §4.4 spells out;
-  it used to return every project's rows.
+  refuses `--all-projects` with `USAGE`, as contract 0.10.1 §4.4 spells out.
+  It used to return every project's rows, which handed one project's operator
+  the deferred actions of every other.
 - A `parked resolve` decided by anyone but the operator now carries
   `on_behalf_of_operator` on its event (§3.7), the same mark the sibling
-  plugins write. The operator's own decision carries nothing extra.
+  plugins write. The operator's own decision carries nothing extra, so the
+  trail distinguishes the human's call from an agent making it for them.
 - The declared contract revision is now 0.10.1, up from 0.10.0.
 
 ## [0.2.0] - 2026-08-27
@@ -238,5 +246,6 @@ the skeleton they land on.
 - The store is JSON where §5.1 says SQLite. The reason is in the README and in
   `docs/contract-notes.md`.
 
+[0.2.1]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.1
 [0.2.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.0
 [0.1.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.1.0

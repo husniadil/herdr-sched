@@ -1,6 +1,6 @@
 id = "herdr-sched"
 name = "Sched"
-version = "0.2.0"
+version = "0.2.1"
 min_herdr_version = "0.8.0"
 description = "The scheduler and trigger plugin for a Herdr fleet: a cron schedule or an inbound trigger fires an action into the sibling plugins"
 platforms = ["macos", "linux"]
