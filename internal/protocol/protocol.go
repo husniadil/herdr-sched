@@ -20,20 +20,35 @@ type Request struct {
 	// As is the §3.2 escape hatch for cron, trigger and plugin principals. It
 	// is refused for agent and human, which are derived.
 	As string `json:"as,omitempty"`
+	// Operator is the door saying that the PROCESS it runs in was started by
+	// a deliberate human act: `hsched mcp --operator` (§7.5). It is read once
+	// from the door's own startup and never from a call, which is what keeps
+	// it from being `--as human` with a different spelling. The pane is
+	// resolved first, so a declared door inside a pane is still that pane's
+	// agent (§3.2).
+	Operator bool `json:"operator,omitempty"`
 	// Follow turns `events` into a subscription (§8.2).
 	Follow bool           `json:"follow,omitempty"`
 	Args   map[string]any `json:"args,omitempty"`
 }
 
 // Caller is the principal the daemon records for a call: what the door
-// declared with --as, else the pane it runs in, else nothing at all. It is
+// declared with --as, else the pane it runs in, else the operator when the
+// door was STARTED with the §7.5 declaration, else nothing at all. It is
 // never more than the daemon knows, and it grants nothing (§3.4).
+//
+// The pane is read before the declaration on purpose (§7.5): a door started
+// inside a pane is that pane's agent whatever it was declared, so declaring
+// one gains an agent nothing.
 func (r Request) Caller() string {
 	if r.As != "" {
 		return r.As
 	}
 	if r.Pane != "" {
 		return "agent:" + r.Pane
+	}
+	if r.Operator {
+		return "human"
 	}
 	return "unknown"
 }

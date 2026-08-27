@@ -71,10 +71,17 @@ func inProcessDaemon(t *testing.T) (*daemon.Daemon, Caller) {
 	}
 }
 
-// session connects an in-memory MCP client to the door.
+// session connects an in-memory MCP client to a door nobody declared, which
+// is what an operator wiring `hsched mcp` into a client gets by default.
 func session(t *testing.T, call Caller) *mcp.ClientSession {
 	t.Helper()
-	srv := New("0.1.0", call)
+	return sessionWith(t, call, Options{})
+}
+
+// sessionWith is the same, for a door started with the §7.5 declaration.
+func sessionWith(t *testing.T, call Caller, opt Options) *mcp.ClientSession {
+	t.Helper()
+	srv := New("0.1.0", call, opt)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
@@ -481,8 +488,8 @@ func TestTheServerRegistersUnderTheRepositoryAndServesBareVerbs(t *testing.T) {
 // process that spawned it beyond the pane it was told about.
 func TestTheDoorKeepsNoStateOfItsOwn(t *testing.T) {
 	_, call := inProcessDaemon(t)
-	first := New("0.1.0", call)
-	second := New("0.1.0", call)
+	first := New("0.1.0", call, Options{})
+	second := New("0.1.0", call, Options{})
 	if first == second {
 		t.Fatal("two sessions share one server")
 	}

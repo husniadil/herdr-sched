@@ -52,16 +52,30 @@ func newDaemonCmd() *cobra.Command {
 }
 
 func newMCPCmd() *cobra.Command {
-	return &cobra.Command{
+	var opt mcpdoor.Options
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve the same verbs over stdio MCP",
-		// The door takes no arguments, and silently ignoring one is how a
-		// caller ends up believing it passed something that took effect.
+		Long: "A thin door over the same daemon calls the CLI makes (§7.2). Both\n" +
+			"surfaces are first-class and the door serves every verb the CLI serves\n" +
+			"(§7.3). What a door cannot have is `--as`, which is an identity claim\n" +
+			"carried BY a call; --operator is its counterpart and travels with this\n" +
+			"process instead (§7.5).",
+		// The door takes no positional arguments, and silently ignoring one is
+		// how a caller ends up believing it passed something that took effect.
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mcpdoor.Serve(context.Background(), version.Version, nil)
+			return mcpdoor.Serve(context.Background(), version.Version, nil, opt)
 		},
 	}
+	// §7.5: read once, from the server command. It is deliberately NOT a
+	// persistent flag — a flag every verb carried would be a per-call
+	// declaration, which is the thing this exists instead of.
+	cmd.Flags().BoolVar(&opt.Operator, "operator", false,
+		"Declare that this door speaks for the operator (§7.5). Set it once, in the client's\n"+
+			"server configuration, where a human wrote it deliberately. Without it a door in no\n"+
+			"Herdr pane is nobody, because absence of evidence is not evidence of the operator.")
+	return cmd
 }
 
 func newVersionCmd() *cobra.Command {

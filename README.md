@@ -87,6 +87,35 @@ caller reads them as herdr-sched's, not as names that repeat the binary. A
 dotted verb becomes an underscored tool name, and that name is a field on the
 verb rather than a transformation applied at the door.
 
+### The operator declaration
+
+A door registered in a desktop MCP client stands in no Herdr pane, so it has no
+pane to derive a principal from, and `human` is not what a plugin falls back to
+when it knows nothing (§3.7). Declare the door instead, once, where the
+operator writes the server configuration:
+
+```sh
+hsched mcp --operator
+```
+
+Every call that door makes is then the operator's: the §9 gate's subject, the
+actor on the event trail, and who resolved a parked action. Without it a
+paneless door's calls are attributed to nobody in particular, which is what a
+door nobody declared has earned.
+
+Four things hold, and each is pinned by a test (§7.5):
+
+- It is read once, from the server command. `operator` is refused as a tool
+  argument with `USAGE`, because a door that could be TOLD at call time that it
+  speaks for the operator is a door with no identity at all (§3.2).
+- It is on `hsched mcp` and nowhere else. It is not a persistent flag, and
+  there is no environment variable and no `--as human`.
+- **The pane wins.** A door started inside a pane is that pane's agent whatever
+  it was declared, so an agent gains nothing by declaring one.
+- **An ambiguous door does not start.** `hsched mcp --operator` inside a Herdr
+  pane refuses with `FORBIDDEN` rather than running with two answers about who
+  it is.
+
 ### The four globals
 
 `--json`, `--project`, `--all-projects` and `--as` are on every verb (§3.2,
@@ -106,6 +135,8 @@ verb rather than a transformation applied at the door.
 `--json` and `--as` are absent from the MCP door on purpose, and `--follow`
 with them: a tool call already answers with a structured document, has no pane
 to borrow a principal from, and answers once, because a stream is not a tool
+call. `--operator` above is the door's counterpart to that `--as` exclusion and
+is not a second spelling of it: it travels with the process rather than with a
 call. `internal/mcpdoor`'s `Globals` table records each one, and a test walks
 the whole subcommand tree against it — a flag that is neither mapped nor
 excluded with a reason is a failing test.

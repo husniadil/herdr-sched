@@ -608,9 +608,10 @@ func (d *Daemon) Policy() *gate.Gate {
 // makes that a decision written down beside the verb rather than an omission.
 //
 // The subject is the caller as the daemon records it — the pane a door runs
-// in, or `unknown` for a caller outside one. This binary derives no principal
-// and grants nothing for a pane (§3.4), so what the gate is told is what the
-// daemon knows, and never more.
+// in, `human` for a door started with the §7.5 declaration, and `unknown` for
+// a caller with neither. This binary derives no principal and grants nothing
+// for a pane (§3.4), so what the gate is told is what the daemon knows, and
+// never more.
 func (d *Daemon) pass(v verbs.Verb, req protocol.Request) error {
 	if v.Gated == "" {
 		return nil

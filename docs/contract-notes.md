@@ -9,7 +9,8 @@ bug nobody has found yet.
 
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
 that day. Amended 2026-08-25 with the cron half, and again the same day with
-the trigger half. Amended 2026-08-27 with the §7.5 operator declaration.
+the trigger half. Amended 2026-08-27 with the §7.5 operator declaration, and
+again the same day when it was implemented.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -149,31 +150,27 @@ plugin already owns and does differently: the cursor is on the row and is
 re-read from the store at every start, which is what makes a missed schedule a
 decision rather than a gap in a timer's memory.
 
-## §7.5 — the operator declaration is not implemented
+## §7.5 — the operator declaration, and the one half of §3.7 still owed
 
-§7.5 is a MUST: "A plugin's `<name> mcp` MUST accept a flag, spelled
-`--operator`, declaring that this door speaks for the operator, and MUST NOT
-accept that declaration by any other route." `hsched mcp` takes no such flag,
-and this entry exists because the silence read as a decision nobody made.
+§7.5 is implemented as of 2026-08-27. `hsched mcp --operator` is the one route
+and there is no other: the flag is on the `mcp` command alone, read once at
+start into `mcpdoor.Options`, sent on every request as `Operator`, and
+`operator` is refused BY name as a tool argument with `USAGE`.
+`protocol.Request.Caller` reads `--as`, then the pane, then the declaration, so
+an agent that starts a declared door gains nothing by it, and `Serve` refuses
+to start a declared door carrying `HERDR_PANE_ID` with `FORBIDDEN`. Both halves
+are pinned, the ordering and the startup refusal, because the half that exists
+to reassure a reader is the half a reader stops checking.
 
-The rule reaches this plugin. `protocol.Request.Caller` derives the principal
-from the pane a door was spawned in and answers `unknown` for a caller outside
-one, and that answer is both the §9 gate's subject and the actor written onto
-every trail this daemon appends. A door registered in a desktop MCP client
-stands in no pane, so the jobs, triggers and `parked_resolve` rows an operator
-writes through it are attributed to `unknown` — the paneless case §7.5 exists
-to answer, not a case this plugin escapes.
-
-What is already in place is the half §7.5 shares with §3.2: `--as` carries the
-`cron:<job id>` and `trigger:<id>` principals (§3.1) that this daemon's own
-firings declare on their sibling calls, and it is excluded from the MCP door
-with its reason recorded in `mcpdoor.Globals`. The declaration §7.5 asks for is
-the door's counterpart to that exclusion and is not a second spelling of it.
-
-The exit condition is one flag on `newMCPCmd`, read once at start, resolved
-after `HERDR_PANE_ID` so a pane still wins, refusing to start with `FORBIDDEN`
-when a declared door carries one, with both halves pinned by tests as §7.5
-requires. Until then this is a MUST this build does not satisfy.
+What §3.7 still asks for and this build does not do is the spelling of the
+other two paneless answers. An undeclared paneless caller is `unknown` here,
+where §3.1 gives it the literal `none`, and a paneless CLI invocation is
+`unknown` too, where §3.6 makes it `human` on the argv that ran it. The two go
+together: renaming one without the other would file an operator's own CLI call
+under a principal that means "could not be identified", which is worse than the
+word this store already uses. Both are the same edit to `Caller` and to
+`cli.Request`, and neither is what §7.5 asked for, so they are recorded here
+rather than folded in.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 
