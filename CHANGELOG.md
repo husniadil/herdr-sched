@@ -6,8 +6,26 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-27
+
+The operator, made visible: a popup dashboard on a key, and a principal that
+is the human who wrote the row rather than nobody.
+
 ### Added
 
+- A read-only popup dashboard for jobs, triggers and watches
+  (`scripts/popup-dashboard.sh`): every schedule with when it fires next,
+  every trigger with what is holding it down, and the tail of the run trail.
+  It is read-only on purpose — a popup carries no `HERDR_PANE_ID`, so its
+  principal is the human and the CRUD stays on the gated verbs. It needs `jq`
+  and says so rather than drawing an empty dashboard.
+- A keyboard route to it. Herdr binds keys to plugin actions and not to panes,
+  so a popup with no action has no keyboard route at all: the `dashboard`
+  action in `herdr-plugin.toml` is that route, and `keybindings.toml` carries
+  the block to copy into `~/.config/herdr/config.toml`. Herdr does not load a
+  plugin's keybindings — a plugin does not get to claim keys in the operator's
+  config. Opening a dashboard that is already open reports success rather than
+  an error, so the key can be leaned on.
 - `--operator` on `hsched mcp` (§7.5). A door registered in a desktop MCP
   client stands in no Herdr pane, so every job, trigger and parked resolution
   an operator wrote through it was attributed to nobody. The declaration is a
@@ -26,6 +44,29 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A stop the gate deferred and an operator then resolved closed halt from
+  inside `parked resolve`, which never closed the answer `Serve` waits on: the
+  daemon hung holding its lock and its socket. A stop let through the gate
+  stops.
+- `job enable` flipped the flag and moved the cursor in two writes, and a tick
+  landing between them fired the whole backlog the move exists to skip. One
+  write now.
+- A door whose started daemon lost the lock race gave up instead of dialing
+  the winner, and a detached shell run whose record the store refused vanished
+  without a word — it says so in the log now.
+- The dashboard drew a refusing daemon as an empty one. §6.2 puts a failure on
+  stdout as one JSON document, `jq` read it happily, and every section drew
+  "no schedules" / "no triggers" / "nothing has fired yet" — a healthy
+  scheduler with nothing in it, during an outage. Each renderer captures the
+  answer and its status and asks whether it is usable first, naming which of
+  the four ways it was not: nothing on stdout, an error document, something
+  that is not JSON, or a non-zero status behind a readable one. An empty but
+  healthy daemon still reads as empty.
+- A `q` piped without a trailing newline took the whole redraw interval to
+  act on input that had already arrived: the popup's non-tty fallback slept
+  on a partial line. A partial line is handed over at once; true EOF still
+  sleeps, which is what keeps a closed stdin a redraw loop rather than a spin.
+- The sample keybinding moved off `prefix+c`, which Herdr itself holds.
 - A paneless caller nobody declared is `none`, which is what the contract
   spells, rather than `unknown`; and a paneless CLI invocation is the operator,
   because its argv IS the deliberate human act §3.6 names (§3.7). A parked
@@ -185,4 +226,5 @@ the skeleton they land on.
 - The store is JSON where §5.1 says SQLite. The reason is in the README and in
   `docs/contract-notes.md`.
 
+[0.2.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.0
 [0.1.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.1.0
