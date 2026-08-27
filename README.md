@@ -104,6 +104,11 @@ paneless door's calls are `none` — written into the trail verbatim, so a row a
 door nobody declared created says so rather than being filed under the
 operator.
 
+`hsched doctor` prints the calling principal on its `principal` line, so a
+doctor call through a declared door answers `human` and one through an
+undeclared door answers `none`. That is how an operator checks which of their
+registrations speak for them, on either door and without reading the trail.
+
 The CLI needs no declaration for the same reason it cannot take one. A CLI
 invocation is one process per call, so the argv that ran IS the deliberate
 human act §3.7 asks a paneless `human` to point at, and `hsched` outside a

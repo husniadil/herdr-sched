@@ -653,7 +653,7 @@ func TestDoctorNamesTheInboundDoorAndTheTriggerCounts(t *testing.T) {
 	}
 	d.inbound.set("127.0.0.1:9999", "")
 
-	rep := d.doctor()
+	rep := d.doctor(protocol.Request{})
 	if rep.Triggers.Count != 1 || rep.Triggers.Webhooks != 1 || rep.Triggers.Enabled != 1 {
 		t.Errorf("doctor counted %+v", rep.Triggers)
 	}
@@ -667,7 +667,7 @@ func TestDoctorNamesTheInboundDoorAndTheTriggerCounts(t *testing.T) {
 	// A door that could not bind is a fact only doctor can give: from the call
 	// site an off door and a failed one look the same.
 	d.inbound.set("", "the port is taken")
-	if got := d.doctor().Triggers.InboundError; got != "the port is taken" {
+	if got := d.doctor(protocol.Request{}).Triggers.InboundError; got != "the port is taken" {
 		t.Errorf("doctor says %q about a door that could not bind", got)
 	}
 }
@@ -679,7 +679,7 @@ func TestDoctorCountsAnOrphanedKeyWithoutNamingIt(t *testing.T) {
 	if err := d.Secrets.Set("left-behind", "deadbeef"); err != nil {
 		t.Fatalf("secrets: %v", err)
 	}
-	rep := d.doctor()
+	rep := d.doctor(protocol.Request{})
 	if rep.Triggers.OrphanSecrets != 1 {
 		t.Errorf("doctor counted %d orphaned keys", rep.Triggers.OrphanSecrets)
 	}

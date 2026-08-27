@@ -323,7 +323,7 @@ func TestASkipTheDaemonWasUpForIsNotSkippedAtStart(t *testing.T) {
 	if last := trail[len(trail)-1]; last.Name != "sched.job.skipped" {
 		t.Fatalf("the job trail ends with %q, want the skip recorded", last.Name)
 	}
-	if got := d.doctor().Jobs.SkippedAtStart; len(got) != 0 {
+	if got := d.doctor(protocol.Request{}).Jobs.SkippedAtStart; len(got) != 0 {
 		t.Fatalf("doctor names %+v as skipped at the last start, and this daemon was up for it", got)
 	}
 }
@@ -430,7 +430,7 @@ func TestAMissedScheduleIsSkippedAtStartAndDoctorSaysSo(t *testing.T) {
 	if last.Detail["missed"] != float64(3) && last.Detail["missed"] != 3 {
 		t.Errorf("the skip records %v missed instants, want 3", last.Detail["missed"])
 	}
-	rep := d.doctor()
+	rep := d.doctor(protocol.Request{})
 	if len(rep.Jobs.SkippedAtStart) != 1 {
 		t.Fatalf("doctor names %d skipped jobs, want 1", len(rep.Jobs.SkippedAtStart))
 	}
@@ -471,7 +471,7 @@ func TestCatchUpFiresOnceAtStart(t *testing.T) {
 		t.Fatalf("the run trail reads %v", names(runs))
 	}
 	// The two older instants it stood in for are still said out loud.
-	if len(d.doctor().Jobs.SkippedAtStart) != 1 {
+	if len(d.doctor(protocol.Request{}).Jobs.SkippedAtStart) != 1 {
 		t.Error("a catch-up that stood in for two older instants recorded no skip")
 	}
 }
@@ -550,7 +550,7 @@ func TestADisabledJobFiresNothingAndRecordsNoSkip(t *testing.T) {
 	if calls := f.Calls(t); len(calls) != 0 {
 		t.Errorf("a disabled job fired: %v", calls)
 	}
-	if len(d.doctor().Jobs.SkippedAtStart) != 0 {
+	if len(d.doctor(protocol.Request{}).Jobs.SkippedAtStart) != 0 {
 		t.Error("a disabled job was recorded as skipped")
 	}
 }

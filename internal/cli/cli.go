@@ -99,6 +99,10 @@ func Write(verb string, result json.RawMessage, asJSON bool, out io.Writer) erro
 		}
 		fmt.Fprintf(out, "hsched %s on %s\n", rep.Version, rep.Socket)
 		fmt.Fprintf(out, "  contract    %s satisfied by this plugin\n", rep.Contract)
+		// Who this very call is, as the daemon recorded it (§10.3). It is the
+		// line §7.5 rests on: an operator reads it to see which of their
+		// registrations speak for them.
+		fmt.Fprintf(out, "  principal   %s\n", rep.Principal)
 		fmt.Fprintf(out, "  state dir   %s\n", rep.StateDir)
 		fmt.Fprintf(out, "  config dir  %s\n", rep.ConfigDir)
 		fmt.Fprintf(out, "  config      %s\n", configLine(rep.Config))

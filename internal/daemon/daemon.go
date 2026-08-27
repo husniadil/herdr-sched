@@ -336,7 +336,7 @@ func (d *Daemon) Handle(ctx context.Context, req protocol.Request) (json.RawMess
 func (d *Daemon) serve(ctx context.Context, v verbs.Verb, req protocol.Request) (json.RawMessage, error) {
 	switch v.Name {
 	case "doctor":
-		return encode(d.doctor(), nil)
+		return encode(d.doctor(req), nil)
 	case "dump":
 		// One read of the whole document, not one per list: two reads would
 		// let a save land between them and print a document no process ever
@@ -420,7 +420,14 @@ type DoctorReport struct {
 	// Contract is the plugin contract THIS binary satisfies (§13.4).
 	Contract string `json:"contract"`
 	Plugin   string `json:"plugin"`
-	Socket   string `json:"socket"`
+	// Principal is who the daemon records this very call as (§3.2, §3.7),
+	// derived by the door and never declared by the caller. §7.5 rests its
+	// declaration on this line being here: a doctor call through a declared
+	// door answers `human` and one through an undeclared door answers `none`,
+	// which is how an operator checks which of their registrations speak for
+	// them.
+	Principal string `json:"principal"`
+	Socket    string `json:"socket"`
 	// StateDir and ConfigDir are the two directories §10.3 makes doctor
 	// print. An operator reading an override that is not taking effect needs
 	// to know WHICH pair this daemon resolved, and the environment that
@@ -525,11 +532,12 @@ type EventsHealth struct {
 // doctor never fails. It is what an operator runs when something else already
 // refused, and a store that could not be read is the answer rather than an
 // obstacle to giving one.
-func (d *Daemon) doctor() DoctorReport {
+func (d *Daemon) doctor(req protocol.Request) DoctorReport {
 	rep := DoctorReport{
 		Version:   d.Version,
 		Contract:  version.Contract,
 		Plugin:    version.Plugin,
+		Principal: req.Caller(),
 		Socket:    config.SocketPath(),
 		StateDir:  config.StateDir(),
 		ConfigDir: config.ConfigDir(),

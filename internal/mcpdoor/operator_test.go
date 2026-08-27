@@ -11,7 +11,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/husniadil/herdr-sched/internal/cli"
 	"github.com/husniadil/herdr-sched/internal/codes"
+	"github.com/husniadil/herdr-sched/internal/daemon"
 	"github.com/husniadil/herdr-sched/internal/protocol"
 	"github.com/husniadil/herdr-sched/internal/store"
 	"github.com/husniadil/herdr-sched/internal/verbs"
@@ -232,5 +234,75 @@ func TestAnInPaneDeclaredDoorIsStillThePanesAgent(t *testing.T) {
 	// is the ordering in Caller and not the door quietly dropping the flag.
 	if !seen[0].Operator {
 		t.Fatal("the door dropped the declaration; this test would then pass for the wrong reason")
+	}
+}
+
+// §10.3 with §7.5: doctor prints the calling principal, and that is the line
+// §7.5 rests its declaration on — an operator runs doctor to see which of
+// their registrations speak for them. It is one answer over both doors (§6.1),
+// so both are driven here from the same daemon.
+func TestDoctorPrintsTheCallingPrincipalOnBothDoors(t *testing.T) {
+	v, ok := verbs.ByName("doctor")
+	if !ok {
+		t.Fatal("doctor is not a verb")
+	}
+	for name, tc := range map[string]struct {
+		pane string
+		// mcp is the door under test: nil for the CLI, else the options the
+		// MCP door was started with.
+		mcp  *Options
+		want string
+	}{
+		// §3.7: the argv that ran IS the deliberate human act, so a paneless
+		// CLI call is the operator where a paneless server door is not.
+		"a paneless cli invocation":        {"", nil, "human"},
+		"a cli invocation inside a pane":   {"wT:p1", nil, "agent:wT:p1"},
+		"a door nobody declared":           {"", &Options{}, "none"},
+		"a door declared with --operator":  {"", &Options{Operator: true}, "human"},
+		"an undeclared door inside a pane": {"wT:p1", &Options{}, "agent:wT:p1"},
+	} {
+		_, call := inProcessDaemon(t)
+		// AFTER inProcessDaemon, which sets a pane at the one seam every test
+		// goes through.
+		t.Setenv("HERDR_PANE_ID", tc.pane)
+
+		var raw json.RawMessage
+		if tc.mcp == nil {
+			req, _, err := cli.Request(v, nil)
+			if err != nil {
+				t.Fatalf("%s: cli request: %v", name, err)
+			}
+			answer, err := call(req)
+			if err != nil {
+				t.Fatalf("%s: cli doctor: %v", name, err)
+			}
+			raw = answer
+		} else {
+			sess := sessionWith(t, call, *tc.mcp)
+			res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "doctor"})
+			if err != nil {
+				t.Fatalf("%s: CallTool: %v", name, err)
+			}
+			if res.IsError {
+				t.Fatalf("%s: doctor: %s", name, text(res))
+			}
+			raw = json.RawMessage(text(res))
+		}
+
+		var rep daemon.DoctorReport
+		if err := json.Unmarshal(raw, &rep); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if rep.Principal != tc.want {
+			t.Errorf("%s: doctor names %q, want %q", name, rep.Principal, tc.want)
+		}
+		// And the operator reading it without --json is told the same thing.
+		var printed strings.Builder
+		if err := cli.Write("doctor", raw, false, &printed); err != nil {
+			t.Fatalf("%s: render: %v", name, err)
+		}
+		if line := "principal   " + tc.want + "\n"; !strings.Contains(printed.String(), line) {
+			t.Errorf("%s: the rendered report has no %q line:\n%s", name, line, printed.String())
+		}
 	}
 }

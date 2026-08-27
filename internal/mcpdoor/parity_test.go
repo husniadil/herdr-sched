@@ -355,7 +355,18 @@ func TestBothDoorsBuildTheSameRequest(t *testing.T) {
 func TestBothDoorsHandBackTheSameDocument(t *testing.T) {
 	_, call := inProcessDaemon(t)
 
-	fromCLI, err := call(protocol.Request{Verb: "doctor", Args: map[string]any{}})
+	// Through the CLI door's own request rather than a hand-built one: the
+	// answer now carries the calling principal (§10.3), so a request that
+	// skipped the door would compare two different callers.
+	v, ok := verbs.ByName("doctor")
+	if !ok {
+		t.Fatal("doctor is not a verb")
+	}
+	req, _, err := cli.Request(v, nil)
+	if err != nil {
+		t.Fatalf("cli request: %v", err)
+	}
+	fromCLI, err := call(req)
 	if err != nil {
 		t.Fatalf("cli doctor: %v", err)
 	}
