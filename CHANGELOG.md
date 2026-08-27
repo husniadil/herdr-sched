@@ -6,6 +6,35 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `--operator` on `hsched mcp` (§7.5). A door registered in a desktop MCP
+  client stands in no Herdr pane, so every job, trigger and parked resolution
+  an operator wrote through it was attributed to nobody. The declaration is a
+  **start-time flag only**: a pane still wins, a declared door inside a pane
+  refuses to start with `FORBIDDEN`, and a call that carries `operator` as a
+  tool argument is refused with `USAGE`.
+- `hsched doctor` prints the calling principal on a `principal` line (§10.3
+  with §7.5), so an operator sees which of their registrations speak for them
+  without reading the trail: a declared door answers `human`, an undeclared
+  one `none`. Same JSON key and text label as `htask`.
+- `hsched mcp --project <dir>`: the project a door acts in, read once from the
+  server command, for a door spawned in a client's working directory rather
+  than in a project (§4.2). It is a **default and not an override** — a tool
+  call that names `project` still acts in the one it named, and `all_projects`
+  is untouched.
+
+### Fixed
+
+- A paneless caller nobody declared is `none`, which is what the contract
+  spells, rather than `unknown`; and a paneless CLI invocation is the operator,
+  because its argv IS the deliberate human act §3.6 names (§3.7). A parked
+  re-run reproduces `human` through that act rather than through `--as`.
+- `hsched mcp --project` parsed and was then dropped: `--project` is a
+  persistent flag, so the door accepted it and went on resolving every call
+  from the tool argument or its own working directory. A flag that parses and
+  is silently ignored tells the operator nothing.
+
 ## [0.1.0] - 2026-08-25
 
 Both halves: jobs that fire on a schedule, triggers that fire on an inbound
