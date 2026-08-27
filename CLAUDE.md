@@ -4,14 +4,16 @@ The scheduler and trigger plugin for a [Herdr](https://herdr.dev) fleet,
 sibling to [herdr-tasks](https://github.com/husniadil/herdr-tasks),
 [herdr-dispatch](https://github.com/husniadil/herdr-dispatch) and
 [herdr-mail](https://github.com/husniadil/herdr-mail). One Go binary
-(`hsched`, short name `sched` in the shared plugin contract) that fires a cron
-schedule or an inbound trigger into the sibling plugins.
+(`hsched`, short name `sched` in the shared plugin contract, §13.2) that fires
+a cron schedule or an inbound trigger into the sibling plugins.
 
 The contract this plugin satisfies is **not vendored here**. It lives in
-herdr-tasks at `docs/contract.md`, and every `§` in this repository cites it
-by section number. Read it before changing any seam it names, and record a
-knowing divergence in `docs/contract-notes.md` rather than leaving it to be
-discovered.
+agamemnon at `docs/contract.md`, with identical copies in herdr-tasks,
+herdr-mail and herdr-dispatch, and every `§` in this repository cites it by
+section number. The revision this binary claims is declared beside its own
+version in `internal/version/version.go` (§13.4). Read the contract before
+changing any seam it names, and record a knowing divergence in
+`docs/contract-notes.md` rather than leaving it to be discovered.
 
 **Both halves are here.** Jobs fire on a schedule; triggers fire on an inbound
 webhook request or on a watched file changing. Beside them is the skeleton: one
@@ -20,15 +22,21 @@ config, the policy gate, the test harness.
 
 ## Commands
 
-- `make test` — the fast loop, seconds: the pure decision core and the payload
-  shapes, nothing spawned. Run it on every edit.
+- `make test` — the fast loop, seconds: gofmt checked rather than applied,
+  then the pure decision core and the payload shapes, nothing spawned. Run it
+  on every edit.
 - `make test-full` — **the gate**, and what CI runs: the above plus every case
   that starts a daemon, walks the socket or shells out to a fake, with `-race`
   and a cross-compile vet of the other supported platform. Run it before every
   commit.
-- `make e2e` — layer 3: the shipped binary through its own scripts. Out of the
-  gate on purpose; run it before a release tag and whenever a door, a script
-  or the manifest moves.
+- `make e2e` — layer 3: the shipped binary through its own scripts, against a
+  throwaway state dir. Out of the gate on purpose; run it whenever a door, a
+  script or the manifest moves. A machine that cannot build the binary gets a
+  loud skip, never a silent pass.
+- `make release-check` — `test-full`, a build, and that same layer 3 with
+  `SCHED_E2E_REQUIRED=1`, which turns the skip into a failure. This is what
+  goes before a release tag, and it is the target the siblings spell the same
+  way.
 - `make build` / `make install` — `./cmd/hsched`.
 
 A green `make test` is not a green gate. Nothing is committed on it alone.
@@ -44,11 +52,20 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
   passes no gate name says why in `Ungated`. A CLI flag with no place on the
   MCP door says why in `mcpdoor.Globals`. A verb the standard's parity list
   names and this repo does not carry says why in `docs/contract-notes.md`.
-  Each of the three has a test that fails when the reason is missing.
+  The first two have a test that fails when the reason is missing; the third
+  is `TestTheCommonVerbsAreAllPresent`, which asserts the absence, so serving
+  the verb is a deliberate edit to that test rather than a divergence closing
+  itself in silence.
 - **The daemon is the only writer.** Both doors are thin clients that hold
   nothing: an MCP door is spawned once per client session, so anything kept
   there would be one of several disagreeing sets. One daemon per user, elected
   by a lock, is what makes one answer true across every caller.
+- **The config is read once, at startup.** The contract permits a reload and
+  hmail does one; this daemon holds the document it read, so an edit takes
+  effect at the next start and `doctor` prints the path it resolved and
+  whether a file was there. `SCHED_STATE_DIR` and `SCHED_CONFIG_DIR` are the
+  only directory overrides: Herdr's injected plugin dirs are deliberately not
+  read, because honouring them would give one plugin two stores (§5.1, §10.1).
 - **Shell out to the siblings, never into their stores.** This plugin calls
   `htask`, `hmail` and `hdis` through their CLIs with `--json`, the way hdis
   already calls htask. It never opens another plugin's socket and never reads
@@ -56,7 +73,11 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
 - **The gate fails closed.** Unconfigured allows; anything that is not a
   well-formed answer is a deny. A `defer` parks the call rather than
   performing it, and resolving one re-runs the verb under the subject the gate
-  stopped, never the resolver's, without asking the gate again.
+  stopped, never the resolver's, without asking the gate again. A parked row
+  belongs to the project it was parked in: `parked list` answers that
+  project's rows and refuses `--all-projects` with USAGE (§4.4), and a
+  resolution decided by anyone but the operator is marked on its event as
+  performed on their behalf (§3.7).
 - **Fail loud, idle safe.** When a sibling is unreachable, say so and keep
   ticking. Never guess at state, never queue writes for later, and never
   describe a mitigation as a fix.
@@ -84,7 +105,7 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
 ## The store
 
 A JSON document, not SQLite, and the reason is in the README and in
-`docs/contract-notes.md`. Two rules travel with it:
+`docs/contract-notes.md`. Three rules travel with it:
 
 - **Every entity has its own trail beside it**, `<entity>_events`, written in
   the same save. Today that is `parked`/`parked_events`, `jobs`/`job_events`
