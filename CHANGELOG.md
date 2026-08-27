@@ -6,6 +6,14 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The `failed` event a `parked resolve` writes when the re-run errors now
+  carries `on_behalf_of_operator` for the same callers its `resolved` and
+  `refused` events do (§3.7). The mark used to stop at the decision, so a
+  resolution an agent made for the operator was unattributed exactly when the
+  verb did not run.
+
 ## [0.2.1] - 2026-08-27
 
 The contract, read again: a deferred-action list scoped where 0.10.1 says it

@@ -382,6 +382,72 @@ func TestResolvingByTheOperatorCarriesNoMark(t *testing.T) {
 	}
 }
 
+// parkFailingOne parks an action whose verb errors when it is re-run, which is
+// what puts a `failed` event on the trail: the job it removes is not there.
+func parkFailingOne(t *testing.T, d *Daemon, id, project string) {
+	t.Helper()
+	p := store.Parked{
+		ID: id, Subject: "agent:wT:p1", Verb: "sched.job.remove", Project: project,
+		Payload: map[string]any{"id": "no-such-job"},
+		State:   store.ParkedWaiting, Reason: "an operator decides this one",
+		AtMS: pinned.UnixMilli(),
+	}
+	ev := store.NewEvent(pinned, store.EntityParked, store.KindParked, id, p.Subject, project, nil)
+	if err := d.Store.Park(p, ev); err != nil {
+		t.Fatalf("park %s: %v", id, err)
+	}
+}
+
+// §3.7: a resolution whose verb then errored is the same operator verb the
+// resolution was, so the `failed` event carries both halves too — the actor is
+// the resolving principal and the mark says whose authority it exercised. The
+// error detail stays beside the mark; the operator still needs to read why.
+func TestFailingAfterAnAgentResolvesIsMarkedAsTheOperatorsVerb(t *testing.T) {
+	d := newDaemon(t)
+	parkFailingOne(t, d, "pk-agent-failed", "/src/here")
+
+	if _, err := call(t, d, "parked.resolve", map[string]any{"id": "pk-agent-failed"}); err == nil {
+		t.Fatal("resolve: the re-run removed a job that is not there")
+	}
+	ev := lastParkedEvent(t, d)
+	if ev.Kind != store.KindFailed {
+		t.Fatalf("the newest event is %q, want %q", ev.Kind, store.KindFailed)
+	}
+	if ev.Actor != "agent:wT:p1" {
+		t.Fatalf("the event is filed under %q, want the calling principal", ev.Actor)
+	}
+	if ev.Detail[store.OnBehalfOfOperator] != true {
+		t.Fatalf("detail = %v, want %s: the failure is the operator verb the agent performed",
+			ev.Detail, store.OnBehalfOfOperator)
+	}
+	if ev.Detail["error"] == nil {
+		t.Fatalf("detail = %v: the mark did not displace why the verb failed", ev.Detail)
+	}
+}
+
+// The other half of the mark on `failed`, matching the resolution's: the
+// operator resolving in person carries no mark when the verb then errors.
+func TestFailingAfterTheOperatorResolvesCarriesNoMark(t *testing.T) {
+	d := newDaemon(t)
+	parkFailingOne(t, d, "pk-human-failed", "/src/here")
+
+	if _, err := d.Handle(context.Background(), protocol.Request{
+		Verb: "parked.resolve", Project: "/src/here", Operator: true, Door: "cli",
+		Args: map[string]any{"id": "pk-human-failed"}}); err == nil {
+		t.Fatal("resolve: the re-run removed a job that is not there")
+	}
+	ev := lastParkedEvent(t, d)
+	if ev.Kind != store.KindFailed {
+		t.Fatalf("the newest event is %q, want %q", ev.Kind, store.KindFailed)
+	}
+	if ev.Actor != "human" {
+		t.Fatalf("the event is filed under %q, want human", ev.Actor)
+	}
+	if _, marked := ev.Detail[store.OnBehalfOfOperator]; marked {
+		t.Fatalf("detail = %v: the operator's own resolution is not performed on anyone's behalf", ev.Detail)
+	}
+}
+
 // §8.2: the trail is read oldest first, and resuming from an id the rotation
 // has passed is refused rather than answered with the whole window.
 func TestEventsResumesAndRefusesARotatedID(t *testing.T) {

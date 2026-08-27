@@ -762,8 +762,12 @@ func (d *Daemon) resolveParked(ctx context.Context, req protocol.Request) (Parke
 	if err != nil {
 		// The decision stands; the verb did not run. Say why, in the verb's
 		// own words, and leave the row saying so.
+		// §3.7 again: the failure is the same operator verb as the resolution
+		// that carried it, so it is marked the same way. A trail that marked
+		// the decision and not its outcome would name the operator's authority
+		// only where the verb happened to succeed.
 		failed := store.NewEvent(d.now(), store.EntityParked, store.KindFailed, id, req.Caller(), req.Project,
-			map[string]any{"error": codes.Message(err)})
+			store.OperatorVerb(req.Caller(), map[string]any{"error": codes.Message(err)}))
 		if ferr := d.Store.FailParked(id, codes.Message(err), failed); ferr != nil {
 			d.logf("recording that the parked %s failed: %v", id, ferr)
 		} else {

@@ -228,10 +228,17 @@ operator verb: it records the calling principal as the actor, and when that
 principal is not `human` the event's `detail` carries
 `on_behalf_of_operator` — `store.OperatorVerb`, the key the siblings already
 spell that way, so a consumer reading four trails learns one name for one fact.
-Both halves are pinned: `TestResolvingByAnAgentIsMarkedAsTheOperatorsVerb`
-fails when the mark is dropped, and `TestResolvingByTheOperatorCarriesNoMark`
-fails when it is applied to the operator's own resolution, which would make the
-mark say nothing about who acted.
+The `failed` event a resolution's re-run writes when the verb errors carries
+the same mark beside its `error` detail, because that failure is the same
+operator verb the resolution was, and a trail that marked the decision alone
+would name the operator's authority only where the verb happened to succeed.
+All four halves are pinned:
+`TestResolvingByAnAgentIsMarkedAsTheOperatorsVerb` and
+`TestFailingAfterAnAgentResolvesIsMarkedAsTheOperatorsVerb` fail when the mark
+is dropped, and `TestResolvingByTheOperatorCarriesNoMark` and
+`TestFailingAfterTheOperatorResolvesCarriesNoMark` fail when it is applied to
+the operator's own resolution, which would make the mark say nothing about who
+acted.
 
 ## §8.3 — the event hook reads JSON on stdin
 

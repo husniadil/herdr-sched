@@ -431,7 +431,9 @@ The row records who decided it, and when that principal is not the operator the
 event is marked `on_behalf_of_operator` (§3.7): the trail is the whole
 accountability for a verb whose authority is the operator's. A resolved action
 whose verb then failed stays decided and stays visible: an action that errored
-is not proof it had no effect, so the operator reads why and decides again.
+is not proof it had no effect, so the operator reads why and decides again. The
+`failed` event says why and carries the same mark, because the failure is the
+same operator verb the resolution was.
 
 ## Configuration
 
