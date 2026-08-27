@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-27
+
 ### Changed
 
 - The `failed` event a `parked resolve` writes when the re-run errors now
@@ -254,6 +256,7 @@ the skeleton they land on.
 - The store is JSON where §5.1 says SQLite. The reason is in the README and in
   `docs/contract-notes.md`.
 
+[0.2.2]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.2
 [0.2.1]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.1
 [0.2.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.2.0
 [0.1.0]: https://github.com/husniadil/herdr-sched/releases/tag/v0.1.0
