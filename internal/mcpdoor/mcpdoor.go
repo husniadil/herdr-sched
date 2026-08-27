@@ -63,15 +63,22 @@ const Instructions = "herdr-sched is the scheduler and trigger plugin for a Herd
 // that answers in process.
 type Caller func(protocol.Request) (json.RawMessage, error)
 
-// Options is what the door was STARTED with, which under the process-bound
-// identity rule (§3.2) is the only place a door's identity may come from.
-// There is one option and it is not a general-purpose bag: everything else a
-// door needs, it derives per call.
+// Options is what the door was STARTED with. Under the process-bound identity
+// rule (§3.2) that is the only place a door's identity may come from, and it
+// is also where a door's own scope belongs: a door is one long-lived process
+// and the directory it was spawned in is the CLIENT's, not the operator's.
+// It is not a general-purpose bag: everything else a door needs, it derives
+// per call.
 type Options struct {
 	// Operator is §7.5's declaration: this door speaks for the operator.
 	// Read once from `hsched mcp --operator` and never from a tool call,
 	// which is what keeps it from being --as with a different spelling.
 	Operator bool
+	// Project is §4.2's --project, read once from `hsched mcp --project`. It
+	// is the DEFAULT for a call that names no project of its own, so it is
+	// unlike Operator in one way that matters: a call may still name a
+	// project, and the one the call names wins.
+	Project string
 }
 
 // New builds the MCP server with one tool per verb.
@@ -177,6 +184,14 @@ func handlerFor(v verbs.Verb, call Caller, opt Options) mcp.ToolHandler {
 		everyProject, _ := args[argAllProjects].(bool)
 		delete(args, argProject)
 		delete(args, argAllProjects)
+		// The door's own --project stands in for the caller's working
+		// directory, which on this door is the client's. An explicit project
+		// wins, and all_projects is left alone: the door's default is not a
+		// second project to rank against it, so a call across every project
+		// is not turned into the refusal that naming both would be.
+		if named == "" && !everyProject {
+			named = opt.Project
+		}
 		// Resolved here, in the door: a relative path is the CALLER's, and
 		// this process is the only one that knows what it was relative to
 		// (§4.1). Nothing is warned about on this door — there is no stderr a
@@ -308,6 +323,8 @@ type Global struct {
 // reasoned exemption list: every flag the command tree carries beyond a verb's
 // own arguments appears here, mapped or excluded with a reason.
 var Globals = map[string]Global{
+	// Mapped, and additionally read once from `hsched mcp --project` as the
+	// default for a call that names none (§4.2).
 	"project":      {Property: argProject},
 	"all-projects": {Property: argAllProjects},
 	"as": {Excluded: "§3.2: agent and human principals are derived, never declared — " +

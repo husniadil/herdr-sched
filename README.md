@@ -128,6 +128,22 @@ Four things hold, and each is pinned by a test (§7.5):
   pane refuses with `FORBIDDEN` rather than running with two answers about who
   it is.
 
+### The door's project
+
+A door registered in a desktop MCP client is spawned in the client's working
+directory, which is nobody's project. Name one on the server command and every
+call that door makes acts in it:
+
+```sh
+hsched mcp --project ~/src/herdr-sched
+```
+
+It is a **default and not an override**: a tool call that passes `project`
+acts in the one it named, and `all_projects` is untouched — the door's project
+is not a second project to rank against it, so a call across every project is
+still that. Without it a call names its own project or falls back to the
+directory the door was spawned in, which is what it did before.
+
 ### The four globals
 
 `--json`, `--project`, `--all-projects` and `--as` are on every verb (§3.2,
@@ -138,7 +154,8 @@ Four things hold, and each is pinned by a test (§7.5):
   stderr and stdout stays empty.
 - `--project` names one project and `--all-projects` names every one. Passing
   both is refused rather than ranked. A project is resolved in the door, not
-  the daemon, because a relative path is the caller's (§4.1).
+  the daemon, because a relative path is the caller's (§4.1). On `hsched mcp`
+  it is read once, from the server command, as the default described above.
 - `--as` declares a `cron:`, `trigger:` or `plugin:` principal. `agent` and
   `human` are refused: both are derived from the calling process, and a caller
   who could declare one would be declaring the fact the rule exists to keep

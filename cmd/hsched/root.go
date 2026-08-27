@@ -17,10 +17,19 @@ import (
 // newRootCmd is the whole command tree: the verbs come from the registry both
 // doors are generated from, and the three commands that are not verbs — the
 // daemon, the MCP door and the version — are added here beside them.
-func newRootCmd() *cobra.Command {
+func newRootCmd() *cobra.Command { return newRootCmdWith(serveMCP) }
+
+// newRootCmdWith is the same tree over an injected door, so a test can read
+// what `hsched mcp` STARTS the door with without a stdio transport to serve.
+func newRootCmdWith(serve func(mcpdoor.Options) error) *cobra.Command {
 	root := cli.Root(cli.Send)
-	root.AddCommand(newDaemonCmd(), newMCPCmd(), newVersionCmd())
+	root.AddCommand(newDaemonCmd(), newMCPCmd(serve), newVersionCmd())
 	return root
+}
+
+// serveMCP is the real door.
+func serveMCP(opt mcpdoor.Options) error {
+	return mcpdoor.Serve(context.Background(), version.Version, nil, opt)
 }
 
 // daemonFlags are the daemon's own knobs. They stay flags on this subcommand
@@ -51,7 +60,7 @@ func newDaemonCmd() *cobra.Command {
 	return cmd
 }
 
-func newMCPCmd() *cobra.Command {
+func newMCPCmd(serve func(mcpdoor.Options) error) *cobra.Command {
 	var opt mcpdoor.Options
 	cmd := &cobra.Command{
 		Use:   "mcp",
@@ -65,7 +74,15 @@ func newMCPCmd() *cobra.Command {
 		// how a caller ends up believing it passed something that took effect.
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mcpdoor.Serve(context.Background(), version.Version, nil, opt)
+			// §4.2: --project is a persistent flag, so it parses on this
+			// command whether or not anything reads it. It is read HERE, once,
+			// because a door is a PROCESS: the directory it was started in is
+			// the client's rather than the operator's, and this is how an
+			// operator says which project a door with no working directory
+			// worth speaking for acts in. It is the default for a call that
+			// names no project, never an override of one that does.
+			opt.Project, _ = cmd.Flags().GetString("project")
+			return serve(opt)
 		},
 	}
 	// §7.5: read once, from the server command. It is deliberately NOT a
