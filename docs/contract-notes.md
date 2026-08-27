@@ -1,6 +1,7 @@
 # Where this plugin and the contract disagree
 
-The shared plugin contract is **not vendored here**. It lives in herdr-tasks,
+The shared plugin contract is **not vendored here**. It lives in agamemnon
+(`docs/contract.md`), with identical copies in herdr-tasks, herdr-mail and herdr-dispatch,
 and every `§` in this repository cites it by section number. This file is the
 other half of that: where this plugin knowingly does something the contract
 does not say, or does not yet do something the contract does say, with the
