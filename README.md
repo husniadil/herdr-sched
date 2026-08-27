@@ -335,7 +335,12 @@ there are four kinds: `task` files one on the htask board, `mail` sends a
 notify or an ask through hmail, `dispatch` brings a worker up through hdis,
 and `shell` runs a command on the host. An unknown kind, a missing argument or
 an argument of the wrong type is refused when the row is **written**, not when
-it fires: a schedule that fails at 3am fails in a log nobody reads.
+it fires: a schedule that fails at 3am fails in a log nobody reads. What is
+not bounded here is the length of a free-text argument — a `title`, a
+`description`, a `body`, a `command` — because this plugin only carries it to
+the sibling that stores it, and that sibling applies its own §5.9 bound at the
+write that keeps it. A second bound written here is a number that drifts from
+the one that actually decides.
 
 Every sibling call shells out to that sibling's CLI with `--json` and never
 opens its socket, so each daemon stays the only writer of its own store, and
@@ -356,9 +361,8 @@ with nothing to do.
 Every entity in the store keeps its own trail beside it, `<entity>_events`,
 saved in the same write: a change and the event recording it can never land
 one without the other. Today that is the actions the policy gate parked, in
-`parked_events`, the cron jobs in `job_events`, and the runs a signal's
-actions fired, in `run_events`. A trigger arrives the same way, with its own
-sibling trail.
+`parked_events`, the cron jobs in `job_events`, the triggers in
+`trigger_events`, and the runs a signal's actions fired, in `run_events`.
 
 A run is a trail with no list of rows beside it, and deliberately so: the run
 history IS the §8 stream, and a second table holding the same facts in another
@@ -561,8 +565,9 @@ versions herdr-dispatch pins them:
 
 There is no TOML library — `internal/config/toml.go` is a hand-written parser
 for the subset this document needs — no config library, no logging library,
-and no SQLite driver. The contract is **not vendored**: it lives in
-herdr-tasks, and every `§` in this repository cites it by section number.
+and no SQLite driver. The contract is **not vendored**: it lives in agamemnon
+(`docs/contract.md`), with identical copies in herdr-tasks, herdr-mail and
+herdr-dispatch, and every `§` in this repository cites it by section number.
 
 ## Licence
 

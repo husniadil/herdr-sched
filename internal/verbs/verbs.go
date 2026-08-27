@@ -58,7 +58,8 @@ type Verb struct {
 	// asked to explain itself.
 	Mutates bool
 	// Gated is the §9.4 verb name handed to the policy gate, `<short
-	// name>.<verb>` with the short name §13.2 fixes. Empty means this verb
+	// name>.<verb>` with the short name `sched` (contract-notes, §13.2, for
+	// why it is not the `schedule` §13.2 lists). Empty means this verb
 	// passes no name, which a Mutates verb must justify in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.

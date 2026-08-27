@@ -9,8 +9,9 @@ package version
 const Version = "0.2.0"
 
 // Contract is the version of the Herdr plugin contract this binary satisfies.
-// The contract itself is not vendored here: it lives in herdr-tasks, and every
-// section number in this repository cites it (§13.4).
+// The contract itself is not vendored here: it lives in agamemnon
+// (`docs/contract.md`), with identical copies in herdr-tasks, herdr-mail and
+// herdr-dispatch, and every section number in this repository cites it (§13.4).
 const Contract = "0.10.0"
 
 // Plugin is the id Herdr knows this plugin by, and the name the MCP door

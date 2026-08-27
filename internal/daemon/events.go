@@ -145,8 +145,8 @@ func (d *Daemon) Emitted(ev store.Event) {
 	d.hook(ev)
 }
 
-// hook runs the §8.3 command with the event on stdin, detached, with all three
-// stdio closed to the daemon. A hook that hangs, prints or fails changes
+// hook runs the §8.3 command detached, with the event as one JSON line on its
+// stdin and stdout and stderr closed to the daemon (contract-notes, §8.3). A hook that hangs, prints or fails changes
 // nothing here: it is the operator's own program, and this daemon is not
 // waiting on it and never reads what it says.
 func (d *Daemon) hook(ev store.Event) {

@@ -178,7 +178,8 @@ type Config struct {
 	// GateCommand is the policy gate of §9.2. Empty means unconfigured, which
 	// means allow.
 	GateCommand []string `json:"gate_command"`
-	// OnEvent is the §8.3 hook, run detached with all three stdio closed.
+	// OnEvent is the §8.3 hook, run detached: the event arrives as JSON on its
+	// stdin, and stdout and stderr are closed (contract-notes, §8.3).
 	OnEvent []string `json:"on_event"`
 	// WebhookAddr is where the inbound trigger door listens. `off` is no
 	// inbound door at all, which is what a fleet with only file watchers

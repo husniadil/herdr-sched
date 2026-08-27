@@ -11,8 +11,9 @@ bug nobody has found yet.
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
 that day. Amended 2026-08-25 with the cron half, and again the same day with
 the trigger half. Amended 2026-08-27 with the §7.5 operator declaration, again
-the same day when it was implemented, and again when the §3.7 paneless
-spellings it left owed were closed.
+the same day when it was implemented, again when the §3.7 paneless spellings it
+left owed were closed, and again with what a re-read of the whole contract
+found.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -38,6 +39,18 @@ the same write. Today that is `parked`/`parked_events`, `jobs`/`job_events` and
 `triggers`/`trigger_events`, with `run_events` as the trail that has no rows
 beside it.
 
+Two of the rules written for that SQLite store go with it. Ids are not the
+ULIDs of §5.4: a job and a trigger are named by the operator, because the name
+is the id half of the `cron:<job id>` and `trigger:<id>` principals their calls
+declare, and a parked action and an event take `pk-` and `ev-` plus the
+millisecond and eight random hex digits (`internal/store/parked.go`,
+`internal/store/events.go`) — sortable, and a name for one row in one
+operator's own file. There is no `meta` table and no `created_at` either
+(§5.2): the document carries a `version` and nothing else, because a whole-file
+rewrite migrates by being read into the current shape rather than by a numbered
+step. The exit condition for both is the same as this note's — a store that
+wants querying.
+
 ## §5.1 again — the webhook secrets are a second file
 
 One thing is deliberately outside the document: a webhook's HMAC secret. It
@@ -59,6 +72,23 @@ written **first**, so a crash between them leaves a key with no trigger — iner
 and counted by `doctor` as an orphan — rather than a webhook nobody holds a key
 for. A duplicate id is refused before a key is drawn, so a refused write can
 never replace a live trigger's secret.
+
+## §5.7 — remove is a hard delete, the trail stays
+
+§5.7 hard-deletes only a row that never left its initial state. `job remove`
+and `trigger remove` drop the row whatever it has done
+(`internal/store/jobs.go`, `internal/store/triggers.go`), including one that
+has fired.
+
+A schedule row is a definition rather than a record: it says what should
+happen, and removing it says it should not happen any more. What it DID is not
+in the row — it is the entity's own trail, `job_events` and `trigger_events`
+and the runs in `run_events`, and none of that is touched by a remove. So
+nothing a reader could want is lost; what is gone is a definition the operator
+asked to stop.
+
+The exit condition is an operator asking for a removed schedule back. That
+wants an archived state on the row, not a resurrection from the trail.
 
 ## §4.1 — the project key is not always the git common dir's parent
 
@@ -94,12 +124,25 @@ across worktrees. The exit condition is §4.1 itself being amended to say
 "working tree" rather than "the common dir's parent", at which point this entry
 is a note about a fix rather than a divergence.
 
+## §4.4 — `parked.list` is not yet project-scoped
+
+§4.4 makes a list verb default to the resolved project. `job list` and
+`trigger list` do (`internal/daemon/jobs.go`). `parked.list` does not: the
+handler in `internal/daemon/daemon.go` hands back `Store.Parked()` whole, so an
+operator in one repository is shown every project's deferred actions.
+
+This one is a bug and not a decision. It is recorded here rather than fixed in
+passing because the fix is a code change and this file is where the gap is
+visible until then. The exit condition is the handler filtering on
+`req.Project` the way `listJobs` does, with `--all-projects` still answering
+everything.
+
 ## §13 parity — `status` and `sweep` are not here yet
 
 The repo standard's parity list is `doctor · status · stop · dump · events ·
 parked.list · parked.resolve`, with `sweep` wherever the daemon has a
-reconciliation pass to run on demand. This build carries five of the seven and
-neither of the other two.
+reconciliation pass to run on demand. This build carries six of the seven —
+`status` is the one it does not — and `sweep` is the other verb missing.
 
 `status` answers what a plugin is DOING. The reason it was held back — half a
 plugin would answer it in a shape that has to change once the other half lands —
@@ -173,8 +216,51 @@ on every request it builds — one process per call, so its argv IS that act —
 and `Caller` reads `--as`, then the pane, then that act, so neither route
 outranks a pane. `parked resolve` reproduces a `human` subject through the
 same act rather than through `--as human`, and carries a `none` subject back
-by carrying nothing, which is what it means. Nothing here diverges from §3
-any more.
+by carrying nothing, which is what it means.
+
+One half of §3.7 is still open. `parked resolve` is an operator verb, and it
+records the calling principal as the actor (`internal/daemon/daemon.go`), which
+is the honest half. It does NOT mark the event when that principal is not the
+operator: the event's `detail` is nil, so a resolution by an agent and one by
+`human` read the same on the trail. §3.7 asks for both halves and for a test
+that fails when either is dropped. herdr-mail records the same gap in its own
+contract-notes, so this is a shared piece of work rather than a local one. The
+exit condition is a `detail` carrying the mark, plus the pinning test.
+
+## §8.3 — the event hook reads JSON on stdin
+
+§8.3 runs the hook detached with all three stdio closed and hands it the event
+in `SCHED_EVENT`, `SCHED_ENTITY`, `SCHED_ID`, `SCHED_PROJECT` and
+`SCHED_ACTOR`. This daemon sets none of those: it writes the whole event as one
+JSON line on the hook's stdin and closes it (`internal/daemon/events.go`).
+
+The env-var list is a lossy projection of the event. `detail` is verb-specific
+JSON and has nowhere to go in it, and it is the half a hook actually reacts to
+— which job fired, what it answered. One JSON document is the shape the event
+already has, is the same shape `events --json` prints, and grows a field
+without the hook contract changing. Everything else §8.3 asks for holds:
+detached, `setsid`, stdout and stderr closed, and a hook that fails or hangs
+changes nothing about the write that caused it.
+
+The exit condition is §8.3 amended to hand the event over as JSON, or a sibling
+hook script that needs the variables — at which point they are set BESIDE the
+stdin document rather than instead of it.
+
+## §8.4 — a manifest hook matches Herdr's dot spelling
+
+§8.4 says a plugin spells a Herdr event exactly as its schema prints it, which
+for the schema enums is `pane_closed` and `pane_exited`. `herdr-plugin.toml`
+registers `pane.closed` and `pane.exited`.
+
+That is the spelling Herdr itself matches a manifest hook on: it compares
+`hook.on` against `event.dot_name()` (herdrdev/herdr,
+`src/app/api/plugins/runtime.rs:219`), so the underscore spelling matches
+nothing and the hook never runs. The rule and its purpose point the same way
+here — the point of §8.4 is to invent no synonym, and the dot name is Herdr's,
+not this plugin's.
+
+The exit condition is §8.4 amended to say that a manifest `[[events]]` hook
+matches the dot name while the schema enum keeps the underscore.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 
@@ -199,3 +285,39 @@ and whether a file was there, so an operator editing a file that is not taking
 effect can see which of the two it is. This is the entry to revisit first when
 a schedule can be edited in the file: a reload that restarts a timer is a
 different thing from a reload that swaps a gate command.
+
+## §10.3 and §11 — no Herdr call, so no Herdr line in doctor
+
+§10.3 makes `doctor` print Herdr reachability and the Herdr schema or protocol
+it saw. `DoctorReport` (`internal/daemon/daemon.go`) has neither field, because
+§11.1 and §11.2 are unimplemented: nothing here resolves `HERDR_BIN_PATH` and
+nothing reads `herdr api schema --json` at daemon start.
+
+Nothing this plugin does needs Herdr yet. A cron expression is arithmetic, a
+webhook is a socket, and every action shells out to a SIBLING's CLI rather than
+to Herdr. The one Herdr fact it uses — the pane a caller stands in — arrives in
+the environment Herdr already injected, which is a read and not a call. A
+reachability line that reported on a binary this daemon never runs would be a
+health check for nothing, and feature detection against a schema no request is
+built from would answer a question nobody asked.
+
+The exit condition is the first verb that needs a Herdr capability — binding a
+trigger to a pane is the likely one. It brings §11.1 and §11.2 with it, and the
+`doctor` line lands in the same change, reporting on a call that is really
+made.
+
+## §13.2 — the short name is `sched`
+
+§13.2 lists this revision's short names as `tasks`, `dispatch`, `mail` and
+`schedule`, and §14's glossary of binary abbreviations has `htask`, `hdis` and
+`hmail` but no `hsched`. This plugin's short name is `sched`, and its binary is
+`hsched`.
+
+`sched` is what the code already is: every path, the `SCHED_` env prefix, the
+`sched.*` gate names and the `sched.*` event names derive from it, and the
+siblings shortened their own names the same way. `schedule` is also the verb
+this plugin performs, so a name that reads as an imperative in a gate name or
+an event name collides with what it is naming.
+
+The exit condition is §13.2 amended to `sched` and `hsched` added to §14's
+list of binary abbreviations.
