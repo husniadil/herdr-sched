@@ -124,13 +124,6 @@ they share.
   written in the same save (§5.5).
 - `webhook_addr` in the config, with `SCHED_WEBHOOK_ADDR` beside it.
 
-### Fixed
-
-- The MCP-door parity walk in `cmd/hsched` matched a verb by the LAST segment
-  of its subcommand path, so `job add` and `trigger add` collided and one
-  verb's flags were read against the other's argument list. It matches on the
-  whole path now.
-
 - `internal/cron`, a five-field cron parser and the two answers everything
   else is built on: the next instant strictly after a time, and the last one
   at or before it. `*`, `*/n`, `a-b`, `a-b/n`, comma lists, three-letter month
@@ -183,7 +176,16 @@ they share.
 - `run_events` in the store, an entity trail with no list of rows beside it:
   the run history IS the §8 stream and there is no second table.
 
-## [0.1.0] - 2026-08-24
+### Fixed
+
+- The MCP-door parity walk in `cmd/hsched` matched a verb by the LAST segment
+  of its subcommand path, so `job add` and `trigger add` collided and one
+  verb's flags were read against the other's argument list. It matches on the
+  whole path now.
+
+## Before 0.1.0 - 2026-08-24
+
+The untagged skeleton the 0.1.0 release was built on; kept for the record.
 
 The first release: the common foundation every sibling plugin shares, and
 nothing domain-specific yet. There is no job, trigger or action verb — this is
