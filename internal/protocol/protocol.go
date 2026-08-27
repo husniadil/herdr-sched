@@ -21,11 +21,12 @@ type Request struct {
 	// is refused for agent and human, which are derived.
 	As string `json:"as,omitempty"`
 	// Operator is the door saying that the PROCESS it runs in was started by
-	// a deliberate human act: `hsched mcp --operator` (§7.5). It is read once
+	// a deliberate human act: a CLI invocation, whose argv is that act, or a
+	// server door started with `hsched mcp --operator` (§7.5). It is read once
 	// from the door's own startup and never from a call, which is what keeps
 	// it from being `--as human` with a different spelling. The pane is
 	// resolved first, so a declared door inside a pane is still that pane's
-	// agent (§3.2).
+	// agent (§3.2). Without it a paneless caller is `none` (§3.7).
 	Operator bool `json:"operator,omitempty"`
 	// Follow turns `events` into a subscription (§8.2).
 	Follow bool           `json:"follow,omitempty"`
@@ -34,12 +35,20 @@ type Request struct {
 
 // Caller is the principal the daemon records for a call: what the door
 // declared with --as, else the pane it runs in, else the operator when the
-// door was STARTED with the §7.5 declaration, else nothing at all. It is
-// never more than the daemon knows, and it grants nothing (§3.4).
+// PROCESS the door runs in was started by a deliberate human act, else
+// nothing at all. It is never more than the daemon knows, and it grants
+// nothing (§3.4).
 //
 // The pane is read before the declaration on purpose (§7.5): a door started
 // inside a pane is that pane's agent whatever it was declared, so declaring
 // one gains an agent nothing.
+//
+// §3.7: `human` is never the fallback for knowing nothing, and absence of
+// evidence is not evidence of the highest-authority principal in the system.
+// A paneless caller with neither an --as nor a human act behind its process
+// has NO principal, and the literal `none` is that said out loud — written
+// into the trail verbatim, so a row a door nobody declared created says so
+// rather than being filed under the operator.
 func (r Request) Caller() string {
 	if r.As != "" {
 		return r.As
@@ -50,7 +59,7 @@ func (r Request) Caller() string {
 	if r.Operator {
 		return "human"
 	}
-	return "unknown"
+	return "none"
 }
 
 // Response is what comes back: exactly one of Result or Error (§6.2).

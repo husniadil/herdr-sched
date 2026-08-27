@@ -100,8 +100,15 @@ hsched mcp --operator
 
 Every call that door makes is then the operator's: the §9 gate's subject, the
 actor on the event trail, and who resolved a parked action. Without it a
-paneless door's calls are attributed to nobody in particular, which is what a
-door nobody declared has earned.
+paneless door's calls are `none` — written into the trail verbatim, so a row a
+door nobody declared created says so rather than being filed under the
+operator.
+
+The CLI needs no declaration for the same reason it cannot take one. A CLI
+invocation is one process per call, so the argv that ran IS the deliberate
+human act §3.7 asks a paneless `human` to point at, and `hsched` outside a
+Herdr pane is the operator on that alone (§3.6). Inside a pane it is that
+pane's agent, on both doors: the pane is read first, always.
 
 Four things hold, and each is pinned by a test (§7.5):
 

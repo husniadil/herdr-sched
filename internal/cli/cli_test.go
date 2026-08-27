@@ -54,6 +54,41 @@ func TestAgentAndHumanAreRefusedAsDeclaredPrincipals(t *testing.T) {
 	}
 }
 
+// §3.6 and §3.7: a CLI invocation is one process per call, so the argv that
+// ran IS the deliberate human act §3.7 asks a paneless `human` to point at.
+// The CLI door therefore says so on every request, and a paneless call is the
+// operator where a paneless server door nobody declared is `none`. The pane
+// still wins (§3.2), and so does an explicit --as.
+func TestAPanelessCLIInvocationIsTheOperator(t *testing.T) {
+	v, ok := verbs.ByName("doctor")
+	if !ok {
+		t.Fatal("doctor is not a verb")
+	}
+	for name, tc := range map[string]struct {
+		pane string
+		argv []string
+		want string
+	}{
+		"outside a pane":           {"", nil, "human"},
+		"inside a pane":            {"wT:p1", nil, "agent:wT:p1"},
+		"outside a pane with --as": {"", []string{"--as", "cron:nightly"}, "cron:nightly"},
+		"inside a pane with --as":  {"wT:p1", []string{"--as", "cron:nightly"}, "cron:nightly"},
+	} {
+		testenv.New(t)
+		t.Setenv("HERDR_PANE_ID", tc.pane)
+		req, _, err := Request(v, tc.argv)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !req.Operator {
+			t.Errorf("%s: the CLI door sent no human act for its own argv", name)
+		}
+		if got := req.Caller(); got != tc.want {
+			t.Errorf("%s: caller = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
 // The three §3.2 kinds a call MAY declare are the ones this plugin's own
 // principals are spelled with (note 1: cron:<job id> and trigger:<id>).
 func TestCronAndTriggerPrincipalsMayBeDeclared(t *testing.T) {

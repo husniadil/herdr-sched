@@ -6,26 +6,32 @@ import (
 )
 
 // §3.2: the principal is what the door declared with --as, else the pane it
-// runs in, else the operator when the door was started with the §7.5
-// declaration, else nothing at all. It is never more than the daemon knows,
-// and an undeclared caller outside a pane is `unknown` rather than anyone.
+// runs in, else the operator when the process the door runs in was started by
+// a deliberate human act, else nothing at all. It is never more than the
+// daemon knows, and §3.7 spells "nothing at all" the literal `none` rather
+// than filing it under the operator.
 func TestTheCallerIsDerivedAndNeverMoreThanTheDaemonKnows(t *testing.T) {
 	cases := []struct {
 		req  Request
 		want string
 	}{
-		{Request{}, "unknown"},
+		// §3.7: a paneless door nobody declared has no principal, and says so.
+		{Request{}, "none"},
 		{Request{Pane: "wA:p1"}, "agent:wA:p1"},
 		{Request{As: "cron:nightly"}, "cron:nightly"},
 		// An explicit principal wins over the pane, which is what makes a
 		// scheduled call name the schedule rather than the daemon's pane.
 		{Request{As: "trigger:01H", Pane: "wA:p1"}, "trigger:01H"},
-		// §7.5: a door started with the declaration is the operator, and the
-		// pane is read FIRST — an agent that starts a declared door gains
-		// nothing by it, because its calls are still its pane's.
+		// §3.6 and §7.5: a process started by a deliberate human act — a CLI
+		// invocation, whose argv IS that act, or a door started with the
+		// declaration — is the operator. The pane is read FIRST, so an agent
+		// that starts a declared door gains nothing by it, because its calls
+		// are still its pane's.
 		{Request{Operator: true}, "human"},
 		{Request{Operator: true, Pane: "wA:p1"}, "agent:wA:p1"},
 		{Request{Operator: true, As: "cron:nightly"}, "cron:nightly"},
+		// And --as still wins over everything, declared door or not.
+		{Request{Operator: true, Pane: "wA:p1", As: "trigger:01H"}, "trigger:01H"},
 	}
 	for _, tc := range cases {
 		if got := tc.req.Caller(); got != tc.want {

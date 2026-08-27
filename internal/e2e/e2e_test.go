@@ -92,7 +92,7 @@ func setup(t *testing.T) *world {
 		// operator's own daemon for it — and, worse, could answer requests
 		// meant for theirs.
 		"SCHED_WEBHOOK_ADDR="+w.webhook,
-		// A pane, so a derived principal is not `unknown` in every call.
+		// A pane, so a derived principal is not the paneless answer in every call.
 		"HERDR_PANE_ID=wE:p1",
 	)
 	return w

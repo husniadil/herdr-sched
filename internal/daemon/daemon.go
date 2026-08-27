@@ -608,8 +608,8 @@ func (d *Daemon) Policy() *gate.Gate {
 // makes that a decision written down beside the verb rather than an omission.
 //
 // The subject is the caller as the daemon records it — the pane a door runs
-// in, `human` for a door started with the §7.5 declaration, and `unknown` for
-// a caller with neither. This binary derives no principal and grants nothing
+// in, `human` for a CLI invocation or a door started with the §7.5
+// declaration, and `none` for a caller with neither (§3.7). This binary derives no principal and grants nothing
 // for a pane (§3.4), so what the gate is told is what the daemon knows, and
 // never more.
 func (d *Daemon) pass(v verbs.Verb, req protocol.Request) error {
@@ -709,9 +709,17 @@ func (d *Daemon) resolveParked(ctx context.Context, req protocol.Request) (Parke
 		Verb: v.Name, Args: was.Payload, Door: req.Door,
 		Project: was.Project, AllProjects: was.AllProjects,
 	}
+	// The subject is carried back in the form a door would have derived it: a
+	// pane for an agent, the human act behind the process for the operator,
+	// and an explicit --as for the principals §3.2 lets a call declare. `none`
+	// is carried back by carrying nothing, which is what it means.
 	if pane, found := strings.CutPrefix(was.Subject, "agent:"); found {
 		rerun.Pane = pane
-	} else {
+	} else if was.Subject == "human" {
+		// §3.7: `human` with no pane is reproducible only by a process that
+		// speaks for the operator, which is what parked the action.
+		rerun.Operator = true
+	} else if was.Subject != "none" {
 		rerun.As = was.Subject
 	}
 	if rerun.Args == nil {

@@ -27,7 +27,9 @@ func TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot(t *testing.T) {
 		opt  Options
 		want string
 	}{
-		"a door nobody declared":          {Options{}, "unknown"},
+		// §3.7: a paneless door nobody declared has no principal, and the
+		// trail says `none` rather than filing the row under the operator.
+		"a door nobody declared":          {Options{}, "none"},
 		"a door declared with --operator": {Options{Operator: true}, "human"},
 	} {
 		d, call := inProcessDaemon(t)

@@ -9,8 +9,9 @@ bug nobody has found yet.
 
 Recorded 2026-08-24, against contract 0.10.0 and the repo standard as audited
 that day. Amended 2026-08-25 with the cron half, and again the same day with
-the trigger half. Amended 2026-08-27 with the §7.5 operator declaration, and
-again the same day when it was implemented.
+the trigger half. Amended 2026-08-27 with the §7.5 operator declaration, again
+the same day when it was implemented, and again when the §3.7 paneless
+spellings it left owed were closed.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -150,7 +151,7 @@ plugin already owns and does differently: the cursor is on the row and is
 re-read from the store at every start, which is what makes a missed schedule a
 decision rather than a gap in a timer's memory.
 
-## §7.5 — the operator declaration, and the one half of §3.7 still owed
+## §7.5 — the operator declaration, and the §3.7 spelling that came with it
 
 §7.5 is implemented as of 2026-08-27. `hsched mcp --operator` is the one route
 and there is no other: the flag is on the `mcp` command alone, read once at
@@ -162,15 +163,17 @@ to start a declared door carrying `HERDR_PANE_ID` with `FORBIDDEN`. Both halves
 are pinned, the ordering and the startup refusal, because the half that exists
 to reassure a reader is the half a reader stops checking.
 
-What §3.7 still asks for and this build does not do is the spelling of the
-other two paneless answers. An undeclared paneless caller is `unknown` here,
-where §3.1 gives it the literal `none`, and a paneless CLI invocation is
-`unknown` too, where §3.6 makes it `human` on the argv that ran it. The two go
-together: renaming one without the other would file an operator's own CLI call
-under a principal that means "could not be identified", which is worse than the
-word this store already uses. Both are the same edit to `Caller` and to
-`cli.Request`, and neither is what §7.5 asked for, so they are recorded here
-rather than folded in.
+The other two paneless answers §3.7 spells are closed as of 2026-08-27, and
+they landed together because either alone is worse than neither: an undeclared
+paneless caller is now the literal `none` of §3.1, and a paneless CLI
+invocation is `human` on the argv that ran it (§3.6), which is the deliberate
+human act §3.7 requires a paneless `human` to point at. The CLI door says so
+on every request it builds — one process per call, so its argv IS that act —
+and `Caller` reads `--as`, then the pane, then that act, so neither route
+outranks a pane. `parked resolve` reproduces a `human` subject through the
+same act rather than through `--as human`, and carries a `none` subject back
+by carrying nothing, which is what it means. Nothing here diverges from §3
+any more.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 

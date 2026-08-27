@@ -45,8 +45,8 @@ func New(t *testing.T) *Fake {
 	t.Setenv(FakeDirEnv, dir)
 	t.Setenv(config.EnvPrefix+"STATE_DIR", ShortDir(t))
 	t.Setenv(config.EnvPrefix+"CONFIG_DIR", t.TempDir())
-	// A pane a test can be someone in, so a derived principal is not `unknown`
-	// by accident in every case (§3.2).
+	// A pane a test can be someone in, so a derived principal is not the
+	// paneless answer by accident in every case (§3.2).
 	t.Setenv("HERDR_PANE_ID", "wT:p1")
 	return &Fake{Dir: dir}
 }
