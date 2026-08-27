@@ -13,7 +13,10 @@ that day. Amended 2026-08-25 with the cron half, and again the same day with
 the trigger half. Amended 2026-08-27 with the §7.5 operator declaration, again
 the same day when it was implemented, again when the §3.7 paneless spellings it
 left owed were closed, and again with what a re-read of the whole contract
-found.
+found. Amended again the same day against contract **0.10.1**, which closes
+three of these entries by saying what this plugin already did — §13.2's short
+name, §8.4's dot spelling and §5.4's ids — while §4.4's `parked.list` and
+§3.7's operator mark were closed by fixing the code.
 
 ## §5.1 — the store is JSON, not SQLite
 
@@ -39,17 +42,20 @@ the same write. Today that is `parked`/`parked_events`, `jobs`/`job_events` and
 `triggers`/`trigger_events`, with `run_events` as the trail that has no rows
 beside it.
 
-Two of the rules written for that SQLite store go with it. Ids are not the
-ULIDs of §5.4: a job and a trigger are named by the operator, because the name
-is the id half of the `cron:<job id>` and `trigger:<id>` principals their calls
-declare, and a parked action and an event take `pk-` and `ev-` plus the
-millisecond and eight random hex digits (`internal/store/parked.go`,
-`internal/store/events.go`) — sortable, and a name for one row in one
-operator's own file. There is no `meta` table and no `created_at` either
-(§5.2): the document carries a `version` and nothing else, because a whole-file
-rewrite migrates by being read into the current shape rather than by a numbered
-step. The exit condition for both is the same as this note's — a store that
-wants querying.
+One rule written for that SQLite store goes with it. There is no `meta` table
+and no `created_at` (§5.2): the document carries a `version` and nothing else,
+because a whole-file rewrite migrates by being read into the current shape
+rather than by a numbered step. The exit condition is this note's own — a store
+that wants querying.
+
+The ids are no longer a divergence. Contract 0.10.1 binds §5.4's 26-char ULID
+rule to a SQLite store and says what a JSON-document store mints instead: a
+time-sortable text id with a millisecond prefix, and an operator-named entity
+keeps that name as its id. That is what this store already had — `pk-` and
+`ev-` plus the millisecond and eight random hex digits
+(`internal/store/parked.go`, `internal/store/events.go`), and a job or trigger
+named by the operator, because the name is the id half of the `cron:<job id>`
+and `trigger:<id>` principals their calls declare. Closed.
 
 ## §5.1 again — the webhook secrets are a second file
 
@@ -124,18 +130,17 @@ across worktrees. The exit condition is §4.1 itself being amended to say
 "working tree" rather than "the common dir's parent", at which point this entry
 is a note about a fix rather than a divergence.
 
-## §4.4 — `parked.list` is not yet project-scoped
+## §4.4 — `parked.list` is project-scoped (closed)
 
-§4.4 makes a list verb default to the resolved project. `job list` and
-`trigger list` do (`internal/daemon/jobs.go`). `parked.list` does not: the
-handler in `internal/daemon/daemon.go` hands back `Store.Parked()` whole, so an
-operator in one repository is shown every project's deferred actions.
-
-This one is a bug and not a decision. It is recorded here rather than fixed in
-passing because the fix is a code change and this file is where the gap is
-visible until then. The exit condition is the handler filtering on
-`req.Project` the way `listJobs` does, with `--all-projects` still answering
-everything.
+Closed 2026-08-27. `parked.list` handed back `Store.Parked()` whole, so an
+operator in one repository was shown every project's deferred actions. It now
+filters on the resolved project the way `listJobs` does
+(`internal/daemon/daemon.go`), and it refuses `--all-projects` with `USAGE`
+rather than honouring it: contract 0.10.1 names `parked.list` the one entity
+list verb that does not take the flag, because a parked action is resolved
+where it was parked, by an operator acting in that project.
+`TestParkedIsListedInTheProjectItWasParkedIn` and
+`TestParkedIsNotListedAcrossEveryProject` hold both halves.
 
 ## §13 parity — `status` and `sweep` are not here yet
 
@@ -218,14 +223,15 @@ outranks a pane. `parked resolve` reproduces a `human` subject through the
 same act rather than through `--as human`, and carries a `none` subject back
 by carrying nothing, which is what it means.
 
-One half of §3.7 is still open. `parked resolve` is an operator verb, and it
-records the calling principal as the actor (`internal/daemon/daemon.go`), which
-is the honest half. It does NOT mark the event when that principal is not the
-operator: the event's `detail` is nil, so a resolution by an agent and one by
-`human` read the same on the trail. §3.7 asks for both halves and for a test
-that fails when either is dropped. herdr-mail records the same gap in its own
-contract-notes, so this is a shared piece of work rather than a local one. The
-exit condition is a `detail` carrying the mark, plus the pinning test.
+§3.7's other half is implemented as of 2026-08-27. `parked resolve` is an
+operator verb: it records the calling principal as the actor, and when that
+principal is not `human` the event's `detail` carries
+`on_behalf_of_operator` — `store.OperatorVerb`, the key the siblings already
+spell that way, so a consumer reading four trails learns one name for one fact.
+Both halves are pinned: `TestResolvingByAnAgentIsMarkedAsTheOperatorsVerb`
+fails when the mark is dropped, and `TestResolvingByTheOperatorCarriesNoMark`
+fails when it is applied to the operator's own resolution, which would make the
+mark say nothing about who acted.
 
 ## §8.3 — the event hook reads JSON on stdin
 
@@ -246,21 +252,15 @@ The exit condition is §8.3 amended to hand the event over as JSON, or a sibling
 hook script that needs the variables — at which point they are set BESIDE the
 stdin document rather than instead of it.
 
-## §8.4 — a manifest hook matches Herdr's dot spelling
+## §8.4 — a manifest hook matches Herdr's dot spelling (closed)
 
-§8.4 says a plugin spells a Herdr event exactly as its schema prints it, which
-for the schema enums is `pane_closed` and `pane_exited`. `herdr-plugin.toml`
-registers `pane.closed` and `pane.exited`.
-
-That is the spelling Herdr itself matches a manifest hook on: it compares
-`hook.on` against `event.dot_name()` (herdrdev/herdr,
-`src/app/api/plugins/runtime.rs:219`), so the underscore spelling matches
-nothing and the hook never runs. The rule and its purpose point the same way
-here — the point of §8.4 is to invent no synonym, and the dot name is Herdr's,
-not this plugin's.
-
-The exit condition is §8.4 amended to say that a manifest `[[events]]` hook
-matches the dot name while the schema enum keeps the underscore.
+Closed by contract 0.10.1, which splits the spelling in two: a manifest
+`[[events]]` hook names the event in Herdr's dotted hook spelling, and the
+schema's underscore spelling stands everywhere a plugin names the event to
+itself. `herdr-plugin.toml` registers `pane.closed` and `pane.exited` because
+Herdr compares `hook.on` against `event.dot_name()` (herdrdev/herdr,
+`src/app/api/plugins/runtime.rs:219`), so the underscore spelling there matches
+nothing and the hook never runs.
 
 ## §8.4 — the pane-gone hook is wired and does nothing
 
@@ -306,18 +306,12 @@ trigger to a pane is the likely one. It brings §11.1 and §11.2 with it, and th
 `doctor` line lands in the same change, reporting on a call that is really
 made.
 
-## §13.2 — the short name is `sched`
+## §13.2 — the short name is `sched` (closed)
 
-§13.2 lists this revision's short names as `tasks`, `dispatch`, `mail` and
-`schedule`, and §14's glossary of binary abbreviations has `htask`, `hdis` and
-`hmail` but no `hsched`. This plugin's short name is `sched`, and its binary is
-`hsched`.
-
-`sched` is what the code already is: every path, the `SCHED_` env prefix, the
-`sched.*` gate names and the `sched.*` event names derive from it, and the
-siblings shortened their own names the same way. `schedule` is also the verb
-this plugin performs, so a name that reads as an imperative in a gate name or
-an event name collides with what it is naming.
-
-The exit condition is §13.2 amended to `sched` and `hsched` added to §14's
-list of binary abbreviations.
+Closed by contract 0.10.1, which corrects §13.2's fourth short name to `sched`
+and adds `hsched` to §14's binary abbreviations. `sched` is what the code
+always was — every path, the `SCHED_` env prefix, the `sched.*` gate names and
+the `sched.*` event names derive from it — so nothing moved, and the citations
+in `internal/verbs/verbs.go`, `internal/verbs/verbs_test.go` and
+`internal/config/config_test.go` cite §13.2 itself again rather than pointing
+here.

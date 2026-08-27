@@ -58,6 +58,31 @@ const (
 	KindFired = "fired"
 )
 
+// OnBehalfOfOperator is the detail key OperatorVerb writes. It is a shipped
+// `--json` field the moment it appears on an event, so it is added and never
+// repurposed (§6.2). The siblings spell it the same way, because a consumer
+// reading four trails should not have to learn four names for one fact.
+const OnBehalfOfOperator = "on_behalf_of_operator"
+
+// OperatorVerb marks an event whose authority is the operator's when a
+// principal other than the operator performed it (§3.7). Since contract 0.10.0
+// such a verb is advice an agent confirms with the user rather than a refusal
+// this door makes, and nothing here checks that the confirmation happened — a
+// verb demanding proof of it would be the same refusal wearing a different
+// coat. The trail is the whole accountability, so the trail says both halves:
+// the actor stays the calling principal, never `human`, and the mark says the
+// operator's authority was exercised by someone else.
+func OperatorVerb(actor string, detail map[string]any) map[string]any {
+	if actor == "human" {
+		return detail
+	}
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	detail[OnBehalfOfOperator] = true
+	return detail
+}
+
 // MaxEvents is how many events one entity's trail keeps. The whole document is
 // written on every change, so an unbounded trail makes every save slower for
 // as long as the daemon runs; the newest are kept because a consumer resumes

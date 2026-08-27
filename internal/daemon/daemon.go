@@ -366,8 +366,7 @@ func (d *Daemon) serve(ctx context.Context, v verbs.Verb, req protocol.Request) 
 	case "trigger.disable":
 		return encode(d.setTriggerEnabled(req, false))
 	case "parked.list":
-		held := d.Store.Parked()
-		return encode(ParkedReport{Parked: held, Count: len(held)}, nil)
+		return encode(d.listParked(req))
 	case "parked.resolve":
 		return encode(d.resolveParked(ctx, req))
 	case "stop":
@@ -678,6 +677,27 @@ func targetOf(req protocol.Request) string {
 	return ""
 }
 
+// listParked answers with the deferred actions of the resolved project alone.
+// §4.4 names this the one entity list verb that takes no `--all-projects`: a
+// parked action is resolved where it was parked, by an operator acting in that
+// project, so "every project" is not a scope this verb has, and a call that
+// asks for it is refused rather than answered with a list nobody can act on
+// from where they stand.
+func (d *Daemon) listParked(req protocol.Request) (ParkedReport, error) {
+	if req.AllProjects {
+		return ParkedReport{}, codes.Refusef(codes.Invalid,
+			"parked actions are listed in ONE project (§4.4); drop all_projects, and name the project with --project if it is not this one")
+	}
+	held := []store.Parked{}
+	for _, p := range d.Store.Parked() {
+		if req.Project != "" && p.Project != req.Project {
+			continue
+		}
+		held = append(held, p)
+	}
+	return ParkedReport{Parked: held, Count: len(held)}, nil
+}
+
 // resolveParked is the operator overruling the gate. §3.7 makes that advice an
 // agent confirms rather than a refusal this door makes, so any caller reaches
 // it — and the row records WHO, because §9.3 re-runs the verb under the
@@ -691,7 +711,11 @@ func (d *Daemon) resolveParked(ctx context.Context, req protocol.Request) (Parke
 		state, kind = store.ParkedRefused, store.KindRefused
 	}
 	now := d.now()
-	ev := store.NewEvent(now, store.EntityParked, kind, id, req.Caller(), req.Project, nil)
+	// §3.7: the actor is the calling principal and never `human`, and when
+	// that principal is not the operator the event says so too — this is an
+	// operator verb someone else performed on the operator's behalf.
+	ev := store.NewEvent(now, store.EntityParked, kind, id, req.Caller(), req.Project,
+		store.OperatorVerb(req.Caller(), nil))
 	// The move is the one-winner check and it happens BEFORE the verb runs:
 	// after it, two resolves could both read the row as waiting and both run
 	// the verb, with the side effect really happening twice and the loser told

@@ -12,7 +12,7 @@ import (
 
 // §5.1 and §10.1: the short name governs everything nameable, and everything derived
 // from it is derived rather than spelled out a second time. The name is
-// `sched` (contract-notes, §13.2).
+// `sched` (§13.2).
 func TestEveryPathIsDerivedFromTheShortName(t *testing.T) {
 	state := t.TempDir()
 	config := t.TempDir()

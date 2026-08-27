@@ -156,6 +156,8 @@ directory the door was spawned in, which is what it did before.
   both is refused rather than ranked. A project is resolved in the door, not
   the daemon, because a relative path is the caller's (§4.1). On `hsched mcp`
   it is read once, from the server command, as the default described above.
+  `parked list` is the one list verb that takes no `--all-projects` (§4.4) and
+  refuses it: a parked action is resolved where it was parked.
 - `--as` declares a `cron:`, `trigger:` or `plugin:` principal. `agent` and
   `human` are refused: both are derived from the calling process, and a caller
   who could declare one would be declaring the fact the rule exists to keep
@@ -421,12 +423,15 @@ saying which.
 
 A gate that answers `defer` **parks** the call (§9.3) — recorded, not
 performed — and the caller is refused with `DENIED` carrying the `parked_id`.
-`hsched parked list` is where those rows are read. Resolving one re-runs the
+`hsched parked list` is where those rows are read, and it answers with the
+project you are standing in and no other (§4.4). Resolving one re-runs the
 verb under the subject the gate stopped, never the resolver's, and does not
 ask the gate again, because the resolution is the decision the gate deferred.
-The row records who decided it. A resolved action whose verb then failed stays
-decided and stays visible: an action that errored is not proof it had no
-effect, so the operator reads why and decides again.
+The row records who decided it, and when that principal is not the operator the
+event is marked `on_behalf_of_operator` (§3.7): the trail is the whole
+accountability for a verb whose authority is the operator's. A resolved action
+whose verb then failed stays decided and stays visible: an action that errored
+is not proof it had no effect, so the operator reads why and decides again.
 
 ## Configuration
 

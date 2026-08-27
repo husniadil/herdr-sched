@@ -6,6 +6,16 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `parked list` answers the resolved project's deferred actions alone and
+  refuses `--all-projects` with `USAGE`, as contract 0.10.1 §4.4 spells out;
+  it used to return every project's rows.
+- A `parked resolve` decided by anyone but the operator now carries
+  `on_behalf_of_operator` on its event (§3.7), the same mark the sibling
+  plugins write. The operator's own decision carries nothing extra.
+- The declared contract revision is now 0.10.1, up from 0.10.0.
+
 ## [0.2.0] - 2026-08-27
 
 The operator, made visible: a popup dashboard on a key, and a principal that

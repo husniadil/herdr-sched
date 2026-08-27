@@ -271,6 +271,117 @@ func TestAResolvedActionWhoseVerbFailedSaysSo(t *testing.T) {
 	}
 }
 
+// parkOne writes one waiting deferral straight into the store. The gate is a
+// command and every case that runs one is layer 2 (§12.1); what these cases
+// are about is what the daemon does with a row that is ALREADY parked, which
+// is layer 1 and runs in the fast loop.
+func parkOne(t *testing.T, d *Daemon, id, project string) {
+	t.Helper()
+	p := store.Parked{
+		ID: id, Subject: "agent:wT:p1", Verb: "sched.stop", Project: project,
+		State: store.ParkedWaiting, Reason: "an operator decides this one",
+		AtMS: pinned.UnixMilli(),
+	}
+	ev := store.NewEvent(pinned, store.EntityParked, store.KindParked, id, p.Subject, project, nil)
+	if err := d.Store.Park(p, ev); err != nil {
+		t.Fatalf("park %s: %v", id, err)
+	}
+}
+
+// lastParkedEvent is the newest entry on the parked entity's own trail.
+func lastParkedEvent(t *testing.T, d *Daemon) store.Event {
+	t.Helper()
+	trail := d.Store.Snapshot().ParkedEvents
+	if len(trail) == 0 {
+		t.Fatal("the parked trail is empty")
+	}
+	return trail[len(trail)-1]
+}
+
+// §4.4: a list verb answers with the resolved project's rows. An operator
+// standing in one repository is shown what was deferred THERE, and another
+// project's deferrals are not theirs to read from here.
+func TestParkedIsListedInTheProjectItWasParkedIn(t *testing.T) {
+	d := newDaemon(t)
+	parkOne(t, d, "pk-here", "/src/here")
+	parkOne(t, d, "pk-elsewhere", "/src/elsewhere")
+
+	raw, err := d.Handle(context.Background(), protocol.Request{
+		Verb: "parked.list", Project: "/src/here", Pane: "wT:p1", Door: "cli",
+		Args: map[string]any{}})
+	if err != nil {
+		t.Fatalf("parked.list: %v", err)
+	}
+	var rep ParkedReport
+	if err := json.Unmarshal(raw, &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Count != 1 || len(rep.Parked) != 1 || rep.Parked[0].ID != "pk-here" {
+		t.Fatalf("parked.list in /src/here answered %+v", rep)
+	}
+}
+
+// §4.4 names parked.list the one entity list verb that takes no
+// --all-projects: a parked action is resolved where it was parked, by an
+// operator acting in that project. Both doors carry the flag on every verb, so
+// this one refuses it rather than answering a list nobody can act on from
+// where they stand.
+func TestParkedIsNotListedAcrossEveryProject(t *testing.T) {
+	d := newDaemon(t)
+	parkOne(t, d, "pk-here", "/src/here")
+
+	_, err := d.Handle(context.Background(), protocol.Request{
+		Verb: "parked.list", Project: "/src/here", AllProjects: true, Pane: "wT:p1", Door: "cli",
+		Args: map[string]any{}})
+	if codes.Of(err) != codes.Usage {
+		t.Fatalf("code = %s, want USAGE", codes.Of(err))
+	}
+}
+
+// §3.7: resolving is the operator's authority, and when a principal other than
+// the operator exercises it the trail carries BOTH halves — the actor is that
+// principal, never `human`, and the event is marked as an operator verb
+// performed on the operator's behalf.
+func TestResolvingByAnAgentIsMarkedAsTheOperatorsVerb(t *testing.T) {
+	d := newDaemon(t)
+	parkOne(t, d, "pk-agent", "/src/here")
+
+	// --reject decides the row without re-running the verb, which is the same
+	// event on the same trail and nothing else moving.
+	if _, err := call(t, d, "parked.resolve", map[string]any{"id": "pk-agent", "reject": true}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	ev := lastParkedEvent(t, d)
+	if ev.Actor != "agent:wT:p1" {
+		t.Fatalf("the event is filed under %q, want the calling principal", ev.Actor)
+	}
+	if ev.Detail[store.OnBehalfOfOperator] != true {
+		t.Fatalf("detail = %v, want %s: an agent resolving is an operator verb it performed for the operator",
+			ev.Detail, store.OnBehalfOfOperator)
+	}
+}
+
+// The other half of §3.7's mark: the operator resolving in person carries no
+// mark. A trail that marked every resolution would say nothing about who
+// acted, which is the whole reason the mark is there.
+func TestResolvingByTheOperatorCarriesNoMark(t *testing.T) {
+	d := newDaemon(t)
+	parkOne(t, d, "pk-human", "/src/here")
+
+	if _, err := d.Handle(context.Background(), protocol.Request{
+		Verb: "parked.resolve", Project: "/src/here", Operator: true, Door: "cli",
+		Args: map[string]any{"id": "pk-human", "reject": true}}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	ev := lastParkedEvent(t, d)
+	if ev.Actor != "human" {
+		t.Fatalf("the event is filed under %q, want human", ev.Actor)
+	}
+	if _, marked := ev.Detail[store.OnBehalfOfOperator]; marked {
+		t.Fatalf("detail = %v: the operator's own resolution is not performed on anyone's behalf", ev.Detail)
+	}
+}
+
 // §8.2: the trail is read oldest first, and resuming from an id the rotation
 // has passed is refused rather than answered with the whole window.
 func TestEventsResumesAndRefusesARotatedID(t *testing.T) {

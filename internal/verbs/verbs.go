@@ -58,9 +58,8 @@ type Verb struct {
 	// asked to explain itself.
 	Mutates bool
 	// Gated is the §9.4 verb name handed to the policy gate, `<short
-	// name>.<verb>` with the short name `sched` (contract-notes, §13.2, for
-	// why it is not the `schedule` §13.2 lists). Empty means this verb
-	// passes no name, which a Mutates verb must justify in Ungated.
+	// name>.<verb>` with the short name `sched` (§13.2). Empty means this
+	// verb passes no name, which a Mutates verb must justify in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.
 	// Required exactly when Mutates is true and Gated is empty, so the
@@ -267,7 +266,10 @@ var All = []Verb{
 			"those rows are read: who asked, which gated verb, what target, the " +
 			"reason the gate gave, and whether the action is still waiting or was " +
 			"resolved and then failed. A failed row is not finished business — the " +
-			"operator decided and the verb did not run.",
+			"operator decided and the verb did not run. This is the one list verb " +
+			"that takes no all_projects (§4.4): a parked action is resolved where " +
+			"it was parked, so the rows are this project's and asking for every " +
+			"project is refused with USAGE.",
 	},
 	{
 		Name: "parked.resolve", MCP: "parked_resolve", CLI: []string{"parked", "resolve"},

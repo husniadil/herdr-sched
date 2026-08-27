@@ -6,7 +6,7 @@ import (
 )
 
 // §9.4 fixes the gate name as `<short name>.<verb>`, and the short name is
-// `sched` (contract-notes, §13.2). A gate name that carries the binary instead
+// `sched` (§13.2). A gate name that carries the binary instead
 // is a policy an operator writes once and this plugin never asks about.
 func TestEveryGateNameCarriesTheShortName(t *testing.T) {
 	for _, v := range All {

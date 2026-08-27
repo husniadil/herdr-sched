@@ -39,7 +39,7 @@ not be: a dispatched worker pane can have the door and not the binary.
 | `doctor` | Whether the plugin can work at all. Run it FIRST when anything else refuses. |
 | `events` | The append-only trail of what this plugin did. |
 | `dump` | The whole store in one document. |
-| `parked_list` | What the policy gate deferred to the operator. |
+| `parked_list` | What the policy gate deferred to the operator, in this project. |
 | `parked_resolve` | Let one of those through, or reject it. |
 | `stop` | End the one daemon serving every project of this user. |
 
@@ -149,7 +149,9 @@ scheduled work will name itself once there is any.
 
 Everything is scoped to a project, the git root of the directory you are
 working in. `project` and `all_projects` are on every tool; passing both is
-refused rather than ranked.
+refused rather than ranked. `parked_list` is the one list tool that takes no
+`all_projects` and refuses it (§4.4): a parked action is resolved where it was
+parked.
 
 ## When something refuses
 
@@ -172,7 +174,10 @@ refuses for a finer reason, that reason is the first word of the message.
 **Resolving a parked action is the operator's authority.** `parked_resolve`
 re-runs a verb the gate stopped, under the original subject, without asking
 the gate again. Confirm with the user before resolving one on their behalf,
-and never reject one to clear a list.
+and never reject one to clear a list. The trail is what carries the
+accountability: your principal is the actor, and the event is marked
+`on_behalf_of_operator` because you performed the operator's authority for
+them (§3.7).
 
 **`stop` is a brake on the whole plugin**, not on one schedule. Nothing this
 plugin drives fires again until a daemon is started. Confirm with the operator
