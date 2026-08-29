@@ -6,6 +6,9 @@ uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- The declared contract revision is now 0.11.0, up from 0.10.1. §11.7 binds
+  plugins that hold leases; this one holds none.
+
 ## [0.2.2] - 2026-08-27
 
 ### Changed

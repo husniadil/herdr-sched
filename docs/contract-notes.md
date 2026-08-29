@@ -322,3 +322,9 @@ the `sched.*` event names derive from it — so nothing moved, and the citations
 in `internal/verbs/verbs.go`, `internal/verbs/verbs_test.go` and
 `internal/config/config_test.go` cite §13.2 itself again rather than pointing
 here.
+
+## §11.7 — a plugin sweeps a pane Herdr no longer lists
+
+**Closed, nothing to do here.** 0.11.0 adds §11.7, a clause on plugins that
+hold leases: a `plugin` principal may release the leases of a pane Herdr no
+longer lists. This plugin holds no leases, so only the declared revision moves.
