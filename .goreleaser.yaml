@@ -1,0 +1,50 @@
+version: 2
+
+# `hsched` is one statically linked Go binary — the daemon, the CLI and the
+# stdio MCP server in the same file — so a release is that binary
+# cross-compiled and nothing else. The archives exist so a machine that is only
+# joining a fleet can fetch a pinned `hsched` instead of needing a Go toolchain
+# and a checkout to build one; `herdr-plugin.toml` still compiles from source
+# for anyone installing this as a Herdr plugin.
+project_name: hsched
+
+builds:
+  - id: hsched
+    main: ./cmd/hsched
+    binary: hsched
+    # No cgo, so every asset is a static cross-compile that needs nothing from
+    # the host it lands on.
+    env: [CGO_ENABLED=0]
+    # macOS and Linux only, which is exactly what `herdr-plugin.toml` declares
+    # under `platforms`. Nothing here is written against Windows.
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    # The version is STAMPED, not taken from the source default.
+    # `version.Version` is what `hsched version` and `hsched doctor` print, what
+    # the MCP door declares, and what the manifest is held to (§13.3), so a
+    # published binary has to report the tag it was cut from rather than
+    # whatever the working tree happened to say when it was built.
+    ldflags:
+      - -s -w
+      - -X github.com/husniadil/herdr-sched/internal/version.Version={{ .Version }}
+    # Reproducible archives: without this the binary carries its build time and
+    # two builds of one tag differ.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  # hsched_<version>_<os>_<arch>.tar.gz, with the binary at the archive root.
+  # An installer knows the asset name before it downloads and untars straight
+  # onto ~/.local/bin, so both the name and the flat layout are spelled out
+  # here rather than left to goreleaser's defaults to keep on choosing.
+  - formats: [tar.gz]
+    name_template: "hsched_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: false
+    files:
+      - LICENSE
+      - README.md
+
+# checksums.txt is goreleaser's own default name, written out because it is
+# also the name an installer fetches by, and a download it cannot verify is a
+# download it refuses.
+checksum:
+  name_template: checksums.txt
